@@ -1,0 +1,72 @@
+# Исключение виртуальной среды
+.venv/
+env/
+venv/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Исключение настроек IDE
+.idea/
+.vscode/
+
+# Исключение системных файлов Windows и macOS
+*.DS_Store
+Thumbs.db
+desktop.ini
+
+# Логи и отладочные файлы
+*.log
+*.pot
+*.mo
+*.cover
+*.coverage
+*.coveragerc
+*.cache
+*.pyc
+*.pyo
+*.pyd
+*.sql
+*.sqlite3
+*.db
+
+# Исключение файлов окружения и ключей
+.env
+*.env
+
+# Файлы конфигурации
+*.ini
+*.cfg
+*.yaml
+*.yml
+
+# Сборочные и статические файлы
+staticfiles/
+media/
+node_modules/
+build/
+dist/
+
+# Линтеры и форматтеры
+coverage.xml
+*.egg-info/
+*.eggs/
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+
+# Инструменты тестирования
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+
+# Другие временные файлы
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
