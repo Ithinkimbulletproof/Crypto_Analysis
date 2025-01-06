@@ -3,6 +3,7 @@ import ccxt
 import logging
 import datetime
 import pandas as pd
+import numpy as np
 from django.db.models import Max
 from django.utils import timezone
 from django.core.management.base import BaseCommand
@@ -290,46 +291,67 @@ class Command(BaseCommand):
             "hour_of_day",
         ]
 
+        missing_columns = [col for col in feature_columns if col not in df.columns]
+        if missing_columns:
+            raise ValueError(f"Отсутствуют следующие столбцы: {missing_columns}")
+
+        if "actual_change" not in df.columns:
+            raise ValueError("Столбец 'actual_change' отсутствует в данных.")
+
         X = df[feature_columns].copy()
-        y = df["actual_change"]
+
+        y = df["actual_change"].copy()
+
+        if X.isnull().any().any():
+            raise ValueError("Признаки содержат пропущенные значения (NaN).")
+        if y.isnull().any():
+            raise ValueError("Целевая метка содержит пропущенные значения (NaN).")
 
         logger.info(f"Количество признаков: {X.shape[1]}, Количество меток: {len(y)}")
+        logger.debug(f"Тип данных признаков: {type(X)}, Тип данных меток: {type(y)}")
+
+        X = X.values
+        y = y.values
 
         return X, y
 
     def scale_and_resample_data(self, X, y, scaler, smote):
-        logger.info(f"Начало обработки данных для масштабирования и ресемплинга")
+        logger.info("Начало обработки данных для масштабирования и ресемплинга")
 
-        X = X.select_dtypes(include=["number"]).copy()
-        logger.info(f"Количество числовых признаков: {X.shape[1]}")
+        if not isinstance(X, pd.DataFrame):
+            X = pd.DataFrame(X)
 
-        X.interpolate(method="linear", limit_direction="both", inplace=True)
-        logger.info("Интерполяция пропусков данных выполнена")
+        logger.info(f"Количество признаков до обработки: {X.shape[1]}")
 
-        for col in X.columns:
-            if X[col].isnull().sum() > 0:
-                logger.warning(
-                    f"Столбец {col} содержит пропущенные значения. Заполнение пропусков..."
-                )
-                X[col].fillna(method="bfill", inplace=True)
-                X[col].fillna(method="ffill", inplace=True)
+        X = X.bfill()
+        X = X.ffill()
 
-        logger.info("Ресемплинг с использованием SMOTE")
-        X_resampled, y_resampled = smote.fit_resample(X, y)
-        logger.info(f"Размер данных после ресемплинга: {X_resampled.shape[0]} примеров")
+        if X.isnull().any().any():
+            logger.warning("Пропущенные значения все еще присутствуют. Удаляем строки.")
+            X.dropna(inplace=True)
+            y = y[:len(X)]
+
+        logger.info(f"Данные после обработки пропусков: {X.shape}")
 
         logger.info("Масштабирование данных")
-        X_scaled = scaler.fit_transform(X_resampled)
-        logger.info("Масштабирование завершено")
+        X_scaled = scaler.fit_transform(X)
 
-        return X_scaled, y_resampled
+        logger.info("Ресемплинг данных с использованием SMOTE")
+        X_resampled, y_resampled = smote.fit_resample(X_scaled, y)
+
+        logger.info(f"Размер данных после ресемплинга: {X_resampled.shape[0]} примеров")
+        return X_resampled, y_resampled
 
     def save_predictions(self, predictions, probabilities, crypto, dates):
         logger.info(f"Сохранение предсказаний для криптовалюты: {crypto}")
 
-        if isinstance(dates, pd.Index):
+        if hasattr(dates, "to_list"):
             dates = dates.to_list()
-            logger.info(f"Конвертация индекса дат в список")
+        elif isinstance(dates, np.ndarray):
+            dates = dates.tolist()
+        elif not isinstance(dates, list):
+            logger.error("Формат дат неподдерживаемый")
+            return
 
         for i, prediction in enumerate(predictions):
             logger.info(f"Сохранение предсказания для даты: {dates[i]}")
@@ -349,16 +371,16 @@ class Command(BaseCommand):
             )
 
     def train_and_evaluate_models(
-        self,
-        models,
-        X_train,
-        y_train,
-        X_test,
-        y_test,
-        total_predictions,
-        correct_predictions,
+            self,
+            models,
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            total_predictions,
+            correct_predictions,
     ):
-        logger.info(f"Начало обучения и оценки моделей")
+        logger.info("Начало обучения и оценки моделей")
         tscv = TimeSeriesSplit(n_splits=5)
 
         for model_name, model in models.items():
@@ -373,35 +395,40 @@ class Command(BaseCommand):
                 "Logistic Regression": {"C": [0.1, 1, 10]},
             }.get(model_name, {})
 
-            if param_grid:
+            try:
+                if param_grid:
+                    logger.info(f"Параметры для GridSearch модели {model_name}: {param_grid}")
+                    model = GridSearchCV(
+                        model, param_grid, cv=tscv, scoring="accuracy", n_jobs=-1
+                    )
+
+                logger.info(f"Обучение модели {model_name}")
+                model.fit(X_train, y_train)
+
+                predictions = model.predict(X_test)
+                if hasattr(model, "predict_proba"):
+                    probabilities = model.predict_proba(X_test)[:, 1]
+                else:
+                    probabilities = None
+
+                crypto = "BTC/USDT"
+                dates = getattr(X_test, "index", None)
+                self.save_predictions(predictions, probabilities, crypto, dates)
+
+                accuracy = accuracy_score(y_test, predictions)
+                f1 = f1_score(y_test, predictions)
+
                 logger.info(
-                    f"Параметры модели {model_name} для GridSearch: {param_grid}"
-                )
-                model = GridSearchCV(
-                    model, param_grid, cv=tscv, scoring="accuracy", n_jobs=-1
+                    f"Точность модели {model_name}: {accuracy:.2%}, F1-score: {f1:.2%}"
                 )
 
-            logger.info(f"Обучение модели {model_name}")
-            model.fit(X_train, y_train)
+                total_predictions += len(predictions)
+                correct_predictions += sum(predictions == y_test)
 
-            predictions = model.predict(X_test)
-            probabilities = model.predict_proba(X_test)[:, 1]
+            except Exception as e:
+                logger.error(f"Ошибка при обработке модели {model_name}: {e}")
 
-            crypto = "BTC/USDT"
-            dates = X_test.index
-            self.save_predictions(predictions, probabilities, crypto, dates)
-
-            accuracy = accuracy_score(y_test, predictions)
-            f1 = f1_score(y_test, predictions)
-
-            logger.info(
-                f"Точность модели {model_name}: {accuracy:.2%}, F1-score: {f1:.2%}"
-            )
-
-            total_predictions += len(predictions)
-            correct_predictions += sum(predictions == y_test)
-
-        logger.info(f"Завершено обучение и оценка моделей")
+        logger.info("Завершено обучение и оценка моделей")
         return total_predictions, correct_predictions
 
     def log_overall_accuracy(self, total_predictions, correct_predictions):
