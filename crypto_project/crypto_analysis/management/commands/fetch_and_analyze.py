@@ -11,7 +11,7 @@ from pyti.smoothed_moving_average import smoothed_moving_average as sma
 from pyti.relative_strength_index import relative_strength_index as rsi
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, TimeSeriesSplit, GridSearchCV
 from sklearn.metrics import accuracy_score, f1_score
 from sklearn.preprocessing import StandardScaler
 from imblearn.over_sampling import SMOTE
@@ -195,15 +195,49 @@ class Command(BaseCommand):
         return X, y
 
     def scale_and_resample_data(self, X, y, scaler, smote):
-        X.fillna(X.mean(), inplace=True)
+        X = X.select_dtypes(include=['number']).copy()
+        X.interpolate(method='linear', limit_direction='both', inplace=True)
+        for col in X.columns:
+            if X[col].isnull().sum() > 0:
+                X[col].fillna(method='bfill', inplace=True)
+                X[col].fillna(method='ffill', inplace=True)
+
         X_resampled, y_resampled = smote.fit_resample(X, y)
         X_scaled = scaler.fit_transform(X_resampled)
         return X_scaled, y_resampled
 
+    def save_predictions(self, predictions, probabilities, crypto, dates):
+        for i, prediction in enumerate(predictions):
+            MarketData.objects.update_or_create(
+                cryptocurrency=crypto,
+                date=dates[i],
+                defaults={
+                    "predicted_price_change": 1 if prediction else -1,
+                    "probability_increase": probabilities[i],
+                    "probability_decrease": 1 - probabilities[i],
+                }
+            )
+
     def train_and_evaluate_models(self, models, X_train, y_train, X_test, y_test, total_predictions, correct_predictions):
+        tscv = TimeSeriesSplit(n_splits=5)
         for model_name, model in models.items():
+            param_grid = {
+                "Gradient Boosting": {"n_estimators": [100, 200], "learning_rate": [0.05, 0.1]},
+                "Random Forest": {"n_estimators": [100, 150, 200]},
+                "Logistic Regression": {"C": [0.1, 1, 10]}
+            }.get(model_name, {})
+
+            if param_grid:
+                model = GridSearchCV(model, param_grid, cv=tscv, scoring='accuracy', n_jobs=-1)
+
             model.fit(X_train, y_train)
             predictions = model.predict(X_test)
+            probabilities = model.predict_proba(X_test)[:, 1]
+
+            crypto = "BTC/USDT"
+            dates = X_test.index
+            self.save_predictions(predictions, probabilities, crypto, dates)
+
             accuracy = accuracy_score(y_test, predictions)
             f1 = f1_score(y_test, predictions)
             logger.info(f"Точность модели {model_name}: {accuracy:.2%}, F1-score: {f1:.2%}")
