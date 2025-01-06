@@ -14,6 +14,7 @@ DEBUG = True
 ALLOWED_HOSTS = []
 
 INSTALLED_APPS = [
+    "django_extensions",
     "crypto_analysis",
     "django.contrib.admin",
     "django.contrib.auth",
