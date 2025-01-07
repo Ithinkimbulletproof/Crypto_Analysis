@@ -1,4 +1,5 @@
 import os
+import time
 import ccxt
 import logging
 import datetime
@@ -104,25 +105,22 @@ class Command(BaseCommand):
         return since
 
     def fetch_and_store_data(self, exchange, symbol, since):
-        while True:
+        retries = 3
+        while retries > 0:
             try:
-                logger.info(f"Запрос данных с {since} для {symbol} на {exchange.id}")
                 data = exchange.fetch_ohlcv(symbol, "1h", since=since)
                 if not data:
-                    logger.info(f"Данные для {symbol} завершены на {exchange.id}")
+                    logger.info(f"Данные завершены для {symbol} на {exchange.id}")
                     break
 
                 for record in data:
                     self.store_data(symbol, exchange, record)
-
                 since = data[-1][0] + 1
-                logger.info(
-                    f"Обновлена дата запроса на {since} для {symbol} на {exchange.id}"
-                )
+            except ccxt.NetworkError as e:
+                retries -= 1
+                logger.warning(f"Ошибка сети: {str(e)}. Повторные попытки: {retries}")
             except Exception as e:
-                logger.error(
-                    f"Ошибка загрузки данных {symbol} для {exchange.id}: {str(e)}"
-                )
+                logger.error(f"Ошибка загрузки: {str(e)}")
                 break
 
     def store_data(self, symbol, exchange, record):
@@ -244,23 +242,27 @@ class Command(BaseCommand):
         return df
 
     def process_data(self, df):
+        start_time = time.time()
         logger.info(f"Начало обработки данных: {len(df)} записей")
 
         close_prices = df["close_price"].tolist()
 
-        df["SMA_14"] = (
-            sma(close_prices, 14) if len(close_prices) >= 14 else [None] * len(df)
-        )
-        df["RSI_14"] = (
-            rsi(close_prices, 14) if len(close_prices) >= 14 else [None] * len(df)
-        )
+        if len(close_prices) < 14:
+            logger.warning("Недостаточно данных для расчёта индикаторов.")
+            return pd.DataFrame()
+
+        df["SMA_14"] = sma(close_prices, 14)
+        df["RSI_14"] = rsi(close_prices, 14)
         df["volatility"] = df["close_price"].rolling(window=14).std()
         df["volume_change"] = df["volume"].pct_change()
-        df["price_change"] = df["close_price"].pct_change().shift(-1)
-        df["MACD"] = (
-            df["close_price"].ewm(span=12).mean()
-            - df["close_price"].ewm(span=26).mean()
-        )
+        df["price_change"] = df["close_price"].pct_change()
+
+        ema_12 = df["close_price"].ewm(span=12).mean()
+        ema_26 = df["close_price"].ewm(span=26).mean()
+        df["MACD"] = ema_12 - ema_26
+        df["EMA_9"] = df["close_price"].ewm(span=9).mean()
+
+        df["momentum"] = df["close_price"].diff(4)
         df["day_of_week"] = pd.to_datetime(df["date"]).dt.dayofweek
         df["hour_of_day"] = pd.to_datetime(df["date"]).dt.hour
         df["actual_change"] = (df["price_change"] > 0).astype(int)
@@ -275,6 +277,12 @@ class Command(BaseCommand):
 
         logger.info(f"Количество записей после обработки: {len(df)}")
         logger.info(f"NaN в столбцах после обработки:\n{df.isnull().sum()}")
+
+        end_time = time.time()
+        logger.info(
+            f"Обработка данных завершена за {end_time - start_time:.2f} секунд."
+        )
+        return df
 
     def get_features_and_labels(self, df):
         logger.info(f"Получение признаков и меток из данных: {len(df)} записей")
@@ -329,15 +337,28 @@ class Command(BaseCommand):
         if X.isnull().any().any():
             logger.warning("Пропущенные значения все еще присутствуют. Удаляем строки.")
             X.dropna(inplace=True)
-            y = y[:len(X)]
+            y = y[: len(X)]
 
         logger.info(f"Данные после обработки пропусков: {X.shape}")
+
+        positive_class_ratio = sum(y) / len(y)
+        logger.info(
+            f"Распределение классов: положительный класс - {positive_class_ratio:.2%}"
+        )
+        if positive_class_ratio < 0.1 or positive_class_ratio > 0.9:
+            logger.warning(
+                "Данные сильно дисбалансированы. Возможно, SMOTE не подходит для обработки."
+            )
 
         logger.info("Масштабирование данных")
         X_scaled = scaler.fit_transform(X)
 
         logger.info("Ресемплинг данных с использованием SMOTE")
-        X_resampled, y_resampled = smote.fit_resample(X_scaled, y)
+        try:
+            X_resampled, y_resampled = smote.fit_resample(X_scaled, y)
+        except ValueError as e:
+            logger.error(f"Ошибка при ресемплинге: {e}")
+            return X_scaled, y
 
         logger.info(f"Размер данных после ресемплинга: {X_resampled.shape[0]} примеров")
         return X_resampled, y_resampled
@@ -371,16 +392,17 @@ class Command(BaseCommand):
             )
 
     def train_and_evaluate_models(
-            self,
-            models,
-            X_train,
-            y_train,
-            X_test,
-            y_test,
-            total_predictions,
-            correct_predictions,
+        self,
+        models,
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        total_predictions,
+        correct_predictions,
     ):
         logger.info("Начало обучения и оценки моделей")
+
         tscv = TimeSeriesSplit(n_splits=5)
 
         for model_name, model in models.items():
@@ -388,16 +410,21 @@ class Command(BaseCommand):
 
             param_grid = {
                 "Gradient Boosting": {
-                    "n_estimators": [100, 200],
-                    "learning_rate": [0.05, 0.1],
+                    "n_estimators": [100, 200, 300],
+                    "learning_rate": [0.01, 0.05, 0.1],
+                    "max_depth": [3, 5],
                 },
-                "Random Forest": {"n_estimators": [100, 150, 200]},
-                "Logistic Regression": {"C": [0.1, 1, 10]},
+                "Random Forest": {
+                    "n_estimators": [100, 150, 200],
+                    "max_depth": [None, 10, 20],
+                    "min_samples_split": [2, 5],
+                },
+                "Logistic Regression": {"C": [0.01, 0.1, 1, 10]},
             }.get(model_name, {})
 
             try:
                 if param_grid:
-                    logger.info(f"Параметры для GridSearch модели {model_name}: {param_grid}")
+                    logger.info(f"Параметры для модели {model_name}: {param_grid}")
                     model = GridSearchCV(
                         model, param_grid, cv=tscv, scoring="accuracy", n_jobs=-1
                     )
@@ -406,10 +433,11 @@ class Command(BaseCommand):
                 model.fit(X_train, y_train)
 
                 predictions = model.predict(X_test)
-                if hasattr(model, "predict_proba"):
-                    probabilities = model.predict_proba(X_test)[:, 1]
-                else:
-                    probabilities = None
+                probabilities = (
+                    model.predict_proba(X_test)[:, 1]
+                    if hasattr(model, "predict_proba")
+                    else None
+                )
 
                 crypto = "BTC/USDT"
                 dates = getattr(X_test, "index", None)
