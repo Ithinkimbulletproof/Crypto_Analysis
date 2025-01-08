@@ -5,18 +5,15 @@ import logging
 import datetime
 import pandas as pd
 import numpy as np
-from tqdm import tqdm
 from django.db.models import Max
 from django.utils import timezone
-from threading import Thread, Event
 from django.core.management.base import BaseCommand
-from crypto_analysis.models import MarketData, Prediction
+from crypto_analysis.models import MarketData, CryptoPrediction
 from pyti.smoothed_moving_average import smoothed_moving_average as sma
 from pyti.relative_strength_index import relative_strength_index as rsi
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split, TimeSeriesSplit, GridSearchCV
-from sklearn.ensemble import (GradientBoostingClassifier, RandomForestClassifier,
-                              HistGradientBoostingClassifier, ExtraTreesClassifier)
 from sklearn.metrics import accuracy_score, f1_score
 from sklearn.preprocessing import StandardScaler
 from imblearn.over_sampling import SMOTE
@@ -224,8 +221,6 @@ class Command(BaseCommand):
             ),
             "Random Forest": RandomForestClassifier(n_estimators=150, random_state=42),
             "Logistic Regression": LogisticRegression(max_iter=1000, random_state=42),
-            "Hist Gradient Boosting": HistGradientBoostingClassifier(),
-            "Extra Trees": ExtraTreesClassifier(),
         }
         logger.info("Модели успешно инициализированы.")
         return models
@@ -276,7 +271,7 @@ class Command(BaseCommand):
 
         df.replace([float("inf"), float("-inf")], pd.NA, inplace=True)
         df.dropna(
-            subset=["SMA_14", "RSI_14", "volatility", "volume_change", "MACD", "EMA_9"],
+            subset=["SMA_14", "RSI_14", "volatility", "volume_change", "MACD"],
             inplace=True,
         )
 
@@ -284,7 +279,9 @@ class Command(BaseCommand):
         logger.info(f"NaN в столбцах после обработки:\n{df.isnull().sum()}")
 
         end_time = time.time()
-        logger.info(f"Обработка данных завершена за {end_time - start_time:.2f} секунд.")
+        logger.info(
+            f"Обработка данных завершена за {end_time - start_time:.2f} секунд."
+        )
         return df
 
     def get_features_and_labels(self, df):
@@ -366,7 +363,7 @@ class Command(BaseCommand):
         logger.info(f"Размер данных после ресемплинга: {X_resampled.shape[0]} примеров")
         return X_resampled, y_resampled
 
-    def save_predictions(self, predictions, probabilities, crypto, dates, model_name):
+    def save_predictions(self, predictions, probabilities, crypto, dates):
         logger.info(f"Сохранение предсказаний для криптовалюты: {crypto}")
 
         if hasattr(dates, "to_list"):
@@ -378,109 +375,87 @@ class Command(BaseCommand):
             return
 
         for i, prediction in enumerate(predictions):
-            logger.info(f"Сохранение предсказания для даты: {dates[i]}")
+            prediction_date = dates[i]
+            logger.info(f"Сохранение предсказания для даты: {prediction_date}")
 
-            Prediction.objects.update_or_create(
-                cryptocurrency=crypto,
-                prediction_date=dates[i],
+            CryptoPrediction.objects.update_or_create(
+                cryptocurrency_pair=crypto,
+                prediction_date=prediction_date,
                 defaults={
-                    "predicted_price_change": prediction,
+                    "predicted_price_change": 1 if prediction else -1,
                     "probability_increase": probabilities[i],
                     "probability_decrease": 1 - probabilities[i],
-                    "model_used": model_name,
                 },
             )
 
             logger.info(
-                f"Предсказание для {crypto} на {dates[i]} сохранено: {prediction}, вероятности: {probabilities[i]}, {1 - probabilities[i]}"
+                f"Предсказание для {crypto} на {prediction_date} сохранено: {prediction}, вероятности: {probabilities[i]}, {1 - probabilities[i]}"
             )
 
     def train_and_evaluate_models(
-            self,
-            models,
-            X_train,
-            y_train,
-            X_test,
-            y_test,
-            total_predictions,
-            correct_predictions,
+        self,
+        models,
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        total_predictions,
+        correct_predictions,
     ):
         logger.info("Начало обучения и оценки моделей")
 
         tscv = TimeSeriesSplit(n_splits=5)
 
         for model_name, model in models.items():
-            if model_name == "Gradient Boosting":
-                model = HistGradientBoostingClassifier()
-
-            if model_name == "Random Forest":
-                model = ExtraTreesClassifier()
-
             logger.info(f"Обработка модели: {model_name}")
 
             param_grid = {
                 "Gradient Boosting": {
+                    "n_estimators": [100, 200, 300],
                     "learning_rate": [0.01, 0.05, 0.1],
-                    "max_iter": [100, 200],
-                    "max_depth": [3, 5],
+                    "max_depth": [3],
                 },
                 "Random Forest": {
                     "n_estimators": [100, 150, 200],
-                    "max_depth": [None, 10],
+                    "max_depth": [None, 10, 20],
                     "min_samples_split": [2],
                 },
                 "Logistic Regression": {"C": [0.01, 0.1, 1, 10]},
             }.get(model_name, {})
 
-            total_steps = len(param_grid) * tscv.n_splits if param_grid else 1
-
-            with tqdm(total=total_steps, desc=f"Обучение {model_name}") as pbar:
-                stop_event = Event()
-
-                def update_progress():
-                    while not stop_event.is_set():
-                        pbar.refresh()
-                        time.sleep(1)
-
-                thread = Thread(target=update_progress)
-                thread.start()
-
-                try:
-                    if param_grid:
-                        logger.info(f"Параметры для модели {model_name}: {param_grid}")
-                        model = GridSearchCV(
-                            model, param_grid, cv=tscv, scoring="accuracy", n_jobs=-1
-                        )
-
-                    logger.info(f"Обучение модели {model_name}")
-                    model.fit(X_train, y_train)
-
-                    predictions = model.predict(X_test)
-                    probabilities = (
-                        model.predict_proba(X_test)[:, 1]
-                        if hasattr(model, "predict_proba")
-                        else None
+            try:
+                if param_grid:
+                    logger.info(f"Параметры для модели {model_name}: {param_grid}")
+                    model = GridSearchCV(
+                        model, param_grid, cv=tscv, scoring="accuracy", n_jobs=-1
                     )
 
-                    crypto = "BTC/USDT"
-                    dates = getattr(X_test, "index", None)
-                    self.save_predictions(predictions, probabilities, crypto, dates, model_name)
+                logger.info(f"Обучение модели {model_name}")
+                model.fit(X_train, y_train)
 
-                    accuracy = accuracy_score(y_test, predictions)
-                    f1 = f1_score(y_test, predictions)
+                predictions = model.predict(X_test)
+                probabilities = (
+                    model.predict_proba(X_test)[:, 1]
+                    if hasattr(model, "predict_proba")
+                    else None
+                )
 
-                    logger.info(
-                        f"Точность модели {model_name}: {accuracy:.2%}, F1-score: {f1:.2%}"
-                    )
+                crypto = "BTC/USDT"
+                dates = getattr(X_test, "index", None)
+                self.save_predictions(predictions, probabilities, crypto, dates)
 
-                    total_predictions += len(predictions)
-                    correct_predictions += sum(predictions == y_test)
+                accuracy = accuracy_score(y_test, predictions)
+                f1 = f1_score(y_test, predictions)
 
-                except Exception as e:
-                    logger.error(f"Ошибка при обработке модели {model_name}: {e}")
-                finally:
-                    stop_event.set()
-                    thread.join()
+                logger.info(
+                    f"Точность модели {model_name}: {accuracy:.2%}, F1-score: {f1:.2%}"
+                )
+
+                total_predictions += len(predictions)
+                correct_predictions += sum(predictions == y_test)
+
+            except Exception as e:
+                logger.error(f"Ошибка при обработке модели {model_name}: {e}")
 
         logger.info("Завершено обучение и оценка моделей")
         return total_predictions, correct_predictions
