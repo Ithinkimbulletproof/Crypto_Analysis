@@ -11,7 +11,7 @@ from django.core.management.base import BaseCommand
 from crypto_analysis.models import MarketData, CryptoPrediction
 from pyti.smoothed_moving_average import smoothed_moving_average as sma
 from pyti.relative_strength_index import relative_strength_index as rsi
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, ExtraTreesClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split, TimeSeriesSplit, GridSearchCV
 from sklearn.metrics import accuracy_score, f1_score
@@ -216,11 +216,19 @@ class Command(BaseCommand):
     def get_models(self):
         logger.info("Инициализация моделей для обучения.")
         models = {
-            "Gradient Boosting": GradientBoostingClassifier(
-                n_estimators=200, learning_rate=0.1, random_state=42
+            "Gradient Boosting": HistGradientBoostingClassifier(
+                max_iter=100, random_state=42
             ),
-            "Random Forest": RandomForestClassifier(n_estimators=150, random_state=42),
-            "Logistic Regression": LogisticRegression(max_iter=1000, random_state=42),
+            "Random Forest": ExtraTreesClassifier(
+                n_estimators=100,
+                max_depth=10,
+                min_samples_split=10,
+                n_jobs=-1,
+                random_state=42
+            ),
+            "Logistic Regression": LogisticRegression(
+                max_iter=10000, solver="lbfgs", random_state=42
+            ),
         }
         logger.info("Модели успешно инициализированы.")
         return models
@@ -393,45 +401,48 @@ class Command(BaseCommand):
             )
 
     def train_and_evaluate_models(
-        self,
-        models,
-        X_train,
-        y_train,
-        X_test,
-        y_test,
-        total_predictions,
-        correct_predictions,
+            self,
+            models,
+            X_train,
+            y_train,
+            X_test,
+            y_test,
+            total_predictions,
+            correct_predictions,
     ):
         logger.info("Начало обучения и оценки моделей")
 
-        tscv = TimeSeriesSplit(n_splits=5)
+        tscv = TimeSeriesSplit(n_splits=3)
 
         for model_name, model in models.items():
             logger.info(f"Обработка модели: {model_name}")
 
             param_grid = {
                 "Gradient Boosting": {
-                    "n_estimators": [100, 200, 300],
-                    "learning_rate": [0.01, 0.05, 0.1],
+                    "max_iter": [100, 200],
+                    "learning_rate": [0.01, 0.05],
                     "max_depth": [3],
                 },
                 "Random Forest": {
-                    "n_estimators": [100, 150, 200],
-                    "max_depth": [None, 10, 20],
-                    "min_samples_split": [2],
+                    "n_estimators": [100, 150],
+                    "max_depth": [None, 10],
+                    "min_samples_split": [2, 5],
                 },
-                "Logistic Regression": {"C": [0.01, 0.1, 1, 10]},
+                "Logistic Regression": {"C": [0.01, 0.1]},
             }.get(model_name, {})
 
             try:
                 if param_grid:
                     logger.info(f"Параметры для модели {model_name}: {param_grid}")
                     model = GridSearchCV(
-                        model, param_grid, cv=tscv, scoring="accuracy", n_jobs=-1
+                        model, param_grid, cv=tscv, scoring="accuracy", n_jobs=-1, verbose=1
                     )
 
                 logger.info(f"Обучение модели {model_name}")
+                start_time = time.time()
                 model.fit(X_train, y_train)
+                end_time = time.time()
+                logger.info(f"Время обучения модели: {end_time - start_time:.2f} секунд")
 
                 predictions = model.predict(X_test)
                 probabilities = (
