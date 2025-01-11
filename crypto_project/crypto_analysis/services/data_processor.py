@@ -9,6 +9,7 @@ from imblearn.over_sampling import SMOTE
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def compute_average_data(data_all):
     logger.info("Вычисление средних значений по всем биржам.")
     df = pd.DataFrame(list(data_all))
@@ -53,6 +54,7 @@ def compute_average_data(data_all):
     if len(avg_df) < 14:
         logger.warning(f"Недостаточно данных для анализа. Пропускаем.")
         return None
+
     def calculate_sma_rsi(prices, window=14):
         if len(prices) >= window:
             sma_value = sma(prices[-window:], window)[-1]
@@ -60,6 +62,7 @@ def compute_average_data(data_all):
             return sma_value, rsi_value
         else:
             return None, None
+
     close_prices_dict = (
         avg_df.groupby("cryptocurrency")["close_price"].apply(list).to_dict()
     )
