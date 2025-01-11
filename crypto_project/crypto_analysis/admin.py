@@ -12,8 +12,6 @@ class MarketDataAdmin(admin.ModelAdmin):
         "low_price",
         "close_price",
         "volume",
-        "sma_14",
-        "rsi_14",
     )
     list_filter = ("cryptocurrency", "date")
     search_fields = ("cryptocurrency",)

@@ -29,9 +29,6 @@ class MarketData(models.Model):
     volume = models.FloatField()
     exchange = models.CharField(max_length=50, null=True, blank=True)
 
-    sma_14 = models.FloatField(null=True, blank=True)
-    rsi_14 = models.FloatField(null=True, blank=True)
-
     class Meta:
         unique_together = ("cryptocurrency", "date", "exchange")
 
