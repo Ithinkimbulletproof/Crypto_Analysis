@@ -267,16 +267,25 @@ def scale_and_resample_data(X, y):
             logger.warning(
                 "Недостаточно данных для SMOTE. Возвращаем оригинальные данные."
             )
-            return X, y
+            return X, y, np.arange(len(X))
+
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
-        smote = SMOTE(k_neighbors=min(min_samples_per_class - 1, 5))
-        X_resampled, y_resampled = smote.fit_resample(X_scaled, y)
-        return X_resampled, y_resampled
 
+        smote = SMOTE(k_neighbors=min(min_samples_per_class - 1, 5), random_state=42)
+        X_resampled, y_resampled = smote.fit_resample(X_scaled, y)
+
+        original_indices = np.arange(len(X))
+        smote_indices = np.arange(len(X_resampled))
+        original_indices_resampled = np.concatenate([
+            original_indices,
+            np.full(len(X_resampled) - len(X), -1)
+        ])
+
+        return X_resampled, y_resampled, original_indices_resampled
     except Exception as e:
         logger.error(f"Ошибка при масштабировании и ресемплинге данных: {str(e)}")
-        return None, None
+        return None, None, None
 
 
 def main(data_all, window=14):

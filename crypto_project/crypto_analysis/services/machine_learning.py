@@ -55,11 +55,9 @@ def train_and_evaluate_models(models, X_train, y_train, X_test, y_test):
     all_probabilities = []
     total_predictions = 0
     correct_predictions = 0
-
     for model_name, model in models.items():
         logger.info(f"Обработка модели: {model_name}")
         param_grid = generate_param_grid(model_name)
-
         try:
             if param_grid:
                 logger.info(f"Параметры для модели {model_name}: {param_grid}")
@@ -77,14 +75,12 @@ def train_and_evaluate_models(models, X_train, y_train, X_test, y_test):
                 if hasattr(model, "predict_proba")
                 else None
             )
-
             all_predictions.extend(predictions)
             all_probabilities.extend(
                 probabilities
                 if probabilities is not None
                 else [None] * len(predictions)
             )
-
             logger.info(
                 f"Получено {len(predictions)} предсказаний для модели {model_name}"
             )
@@ -92,7 +88,6 @@ def train_and_evaluate_models(models, X_train, y_train, X_test, y_test):
                 logger.info(
                     f"Получено {len(probabilities)} вероятностей для модели {model_name}"
                 )
-
             accuracy = accuracy_score(y_test, predictions)
             f1 = f1_score(y_test, predictions)
             logger.info(
@@ -100,10 +95,8 @@ def train_and_evaluate_models(models, X_train, y_train, X_test, y_test):
             )
             total_predictions += len(predictions)
             correct_predictions += sum(predictions == y_test)
-
         except Exception as e:
             logger.error(f"Ошибка при обработке модели {model_name}: {e}")
             logger.error(traceback.format_exc())
-
     logger.info("Завершено обучение и оценка моделей")
     return total_predictions, correct_predictions, all_predictions, all_probabilities
