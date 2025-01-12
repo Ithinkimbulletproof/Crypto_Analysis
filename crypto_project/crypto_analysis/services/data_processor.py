@@ -58,13 +58,18 @@ def calculate_indicators(df, window=14):
 
 def compute_average_data(data_all, window=14):
     logger.info("Вычисление средних значений по всем биржам.")
+
     try:
-        if not data_all or not isinstance(data_all, list):
-            logger.error(
-                "Некорректный формат входных данных. Ожидается список записей."
-            )
+        if (
+            not data_all
+            or not isinstance(data_all, list)
+            or not all(isinstance(record, dict) for record in data_all)
+        ):
+            logger.error("Некорректный формат данных. Ожидается список словарей.")
             return None
-        df = pd.DataFrame(list(data_all))
+
+        df = pd.DataFrame(data_all)
+
         required_columns = {
             "date",
             "open_price",
@@ -78,6 +83,7 @@ def compute_average_data(data_all, window=14):
         if missing_columns:
             logger.error(f"Отсутствуют обязательные столбцы: {missing_columns}")
             return None
+
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
         numeric_columns = [
             "open_price",
@@ -88,41 +94,45 @@ def compute_average_data(data_all, window=14):
         ]
         for col in numeric_columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
+
         df.dropna(subset=numeric_columns, inplace=True)
         if df.empty:
             logger.warning("Все данные удалены после обработки пропусков.")
             return None
-
         logger.info(f"Количество строк после удаления пропусков: {len(df)}")
 
-        avg_df = (
-            df.groupby(["date", "cryptocurrency"]).mean(numeric_only=True).reset_index()
-        )
+        if df["cryptocurrency"].nunique() > 1 or df["date"].duplicated().any():
+            avg_df = (
+                df.groupby(["date", "cryptocurrency"])
+                .mean(numeric_only=True)
+                .reset_index()
+            )
+        else:
+            avg_df = df.copy()
+
         if len(avg_df) < window:
             logger.warning(
-                f"Недостаточно данных для анализа (требуется минимум {window} записей)."
+                f"Недостаточно данных для анализа (требуется минимум {window} записей). Попробуйте уменьшить окно анализа."
             )
             return None
-
         logger.info(f"Количество строк после группировки: {len(avg_df)}")
 
         avg_df = calculate_indicators(avg_df, window=window)
         if avg_df is None or avg_df.empty:
-            logger.error("Ошибка при расчете индикаторов. Пустой результат.")
+            logger.error("Ошибка при расчёте индикаторов. Пустой результат.")
             return None
-
-        logger.info(f"Количество строк после расчета индикаторов: {len(avg_df)}")
+        logger.info(f"Количество строк после расчёта индикаторов: {len(avg_df)}")
 
         avg_df.dropna(subset=["SMA_14", "RSI_14", "CCI_14"], inplace=True)
         if len(avg_df) < window:
             logger.warning(
-                f"Недостаточно данных после расчета индикаторов (требуется минимум {window} записей)."
+                f"Недостаточно данных после расчёта индикаторов (требуется минимум {window} записей)."
             )
             return None
-
         logger.info(
             f"Количество строк после удаления пропусков индикаторов: {len(avg_df)}"
         )
+        logger.debug(f"Первые строки данных после обработки: {avg_df.head()}")
 
     except Exception as e:
         logger.error(f"Ошибка при вычислении средних значений: {str(e)}")
@@ -132,22 +142,63 @@ def compute_average_data(data_all, window=14):
 
 def prepare_data_for_analysis(data_all, window=14):
     logger.info(f"Подготовка данных для анализа: {len(data_all)} записей.")
-    if not data_all or not isinstance(data_all, list):
-        logger.warning("Переданы некорректные или пустые данные.")
+
+    try:
+        if (
+            not data_all
+            or not isinstance(data_all, list)
+            or not all(isinstance(d, dict) for d in data_all)
+        ):
+            logger.warning(
+                "Переданы некорректные или пустые данные. Ожидается список словарей."
+            )
+            return None
+
+        logger.debug(f"Пример входных данных: {data_all[:3]}")
+
+        required_keys = {
+            "date",
+            "open_price",
+            "high_price",
+            "low_price",
+            "close_price",
+            "volume",
+            "cryptocurrency",
+        }
+        for record in data_all:
+            missing_keys = required_keys - record.keys()
+            if missing_keys:
+                logger.error(f"Отсутствуют обязательные ключи в записи: {missing_keys}")
+                return None
+
+        avg_df = compute_average_data(data_all, window=window)
+        if avg_df is None:
+            logger.error("Ошибка подготовки данных.")
+            return None
+
+        logger.info(
+            f"Количество строк после вычисления средних значений: {len(avg_df)}"
+        )
+
+        avg_df.ffill(inplace=True)
+        avg_df.bfill(inplace=True)
+        if avg_df.isnull().any().any():
+            logger.warning("Остались пропуски после заполнения. Удаляем строки с NaN.")
+            avg_df.dropna(inplace=True)
+
+        logger.info(f"Количество строк после заполнения пропусков: {len(avg_df)}")
+
+        if len(avg_df) < window:
+            logger.warning(
+                f"Недостаточно данных для анализа после обработки (требуется минимум {window} строк)."
+            )
+            return None
+
+        logger.debug(f"Первые строки подготовленных данных: {avg_df.head()}")
+
+    except Exception as e:
+        logger.error(f"Ошибка при подготовке данных: {str(e)}")
         return None
-    avg_df = compute_average_data(data_all, window=window)
-    if avg_df is None:
-        logger.error("Ошибка подготовки данных.")
-        return None
-
-    logger.info(f"Количество строк после вычисления средних значений: {len(avg_df)}")
-
-    avg_df.ffill(inplace=True)
-    avg_df.bfill(inplace=True)
-    if avg_df.isnull().any().any():
-        logger.warning("Остались пропуски после заполнения.")
-
-    logger.info(f"Количество строк после заполнения пропусков: {len(avg_df)}")
 
     return avg_df
 
@@ -211,20 +262,16 @@ def scale_and_resample_data(X, y):
         unique, counts = np.unique(y, return_counts=True)
         class_distribution = dict(zip(unique, counts))
         logger.info(f"Распределение классов перед SMOTE: {class_distribution}")
-
         min_samples_per_class = min(counts)
         if min_samples_per_class < 6:
             logger.warning(
                 "Недостаточно данных для SMOTE. Возвращаем оригинальные данные."
             )
             return X, y
-
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
-
-        smote = SMOTE(n_neighbors=min(min_samples_per_class - 1, 5))
+        smote = SMOTE(k_neighbors=min(min_samples_per_class - 1, 5))
         X_resampled, y_resampled = smote.fit_resample(X_scaled, y)
-
         return X_resampled, y_resampled
 
     except Exception as e:

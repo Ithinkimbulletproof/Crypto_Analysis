@@ -35,6 +35,15 @@ def analyze_and_update():
             if not data_all.exists():
                 logger.warning(f"Нет данных для {crypto}. Пропускаем.")
                 continue
+            data_all = list(data_all)
+            logger.debug(f"Пример входных данных: {data_all[:3]}")
+
+            if not data_all or not all(isinstance(d, dict) for d in data_all):
+                logger.error(
+                    f"Некорректный формат данных для {crypto}. Ожидается список словарей."
+                )
+                continue
+
             df = prepare_data_for_analysis(data_all)
             if df is None:
                 logger.warning(
@@ -63,17 +72,27 @@ def analyze_and_update():
                     )
                     continue
                 X, y = get_features_and_labels(df_period)
-                scaler = StandardScaler()
-                smote = SMOTE(random_state=42)
+                if X is None or y is None:
+                    logger.error(
+                        f"Не удалось получить признаки и метки для {crypto} ({period}). Пропускаем."
+                    )
+                    continue
+                logger.debug(f"Пример признаков: {X[:3]}")
+                logger.debug(f"Пример меток: {y[:3]}")
                 logger.info(
                     f"Масштабирование и ресэмплинг данных для {crypto} ({period})"
                 )
-                X_scaled, y_resampled = scale_and_resample_data(X, y, scaler, smote)
+                X_resampled, y_resampled = scale_and_resample_data(X, y)
+                if X_resampled is None or y_resampled is None:
+                    logger.error(
+                        f"Не удалось масштабировать и ресемплировать данные для {crypto} ({period}). Пропускаем."
+                    )
+                    continue
                 logger.info(
                     f"Разделение данных на обучающую и тестовую выборки для {crypto} ({period})"
                 )
                 X_train, X_test, y_train, y_test = train_test_split(
-                    X_scaled,
+                    X_resampled,
                     y_resampled,
                     test_size=0.2,
                     random_state=42,
@@ -86,8 +105,6 @@ def analyze_and_update():
                         y_train,
                         X_test,
                         y_test,
-                        total_predictions,
-                        correct_predictions,
                     )
                 )
                 dates = X_test.index if hasattr(X_test, "index") else None
