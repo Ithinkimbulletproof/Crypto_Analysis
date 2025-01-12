@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def analyze_and_update():
-    cryptocurrencies = ["BTC/USDT", "ETH/USDT", "XRP/USDT"]
+    cryptocurrencies = ["BTC/USDT"]
     models = get_models()
     total_predictions = 0
     correct_predictions = 0

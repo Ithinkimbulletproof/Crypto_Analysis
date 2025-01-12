@@ -4,6 +4,7 @@ from sklearn.ensemble import HistGradientBoostingClassifier, ExtraTreesClassifie
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import TimeSeriesSplit, GridSearchCV
 from sklearn.metrics import accuracy_score, f1_score
+import traceback
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,35 +31,34 @@ def get_models():
     return models
 
 
-def train_and_evaluate_models(
-    models,
-    X_train,
-    y_train,
-    X_test,
-    y_test,
-    total_predictions=0,
-    correct_predictions=0,
-):
+def generate_param_grid(model_name):
+    grids = {
+        "Gradient Boosting": {
+            "max_iter": [100, 200],
+            "learning_rate": [0.01, 0.05],
+            "max_depth": [3],
+        },
+        "Random Forest": {
+            "n_estimators": [100, 150],
+            "max_depth": [None, 10],
+            "min_samples_split": [2, 5],
+        },
+        "Logistic Regression": {"C": [0.01, 0.1]},
+    }
+    return grids.get(model_name, {})
+
+
+def train_and_evaluate_models(models, X_train, y_train, X_test, y_test):
     logger.info("Начало обучения и оценки моделей")
     tscv = TimeSeriesSplit(n_splits=3)
     all_predictions = []
     all_probabilities = []
+    total_predictions = 0
+    correct_predictions = 0
 
     for model_name, model in models.items():
         logger.info(f"Обработка модели: {model_name}")
-        param_grid = {
-            "Gradient Boosting": {
-                "max_iter": [100, 200],
-                "learning_rate": [0.01, 0.05],
-                "max_depth": [3],
-            },
-            "Random Forest": {
-                "n_estimators": [100, 150],
-                "max_depth": [None, 10],
-                "min_samples_split": [2, 5],
-            },
-            "Logistic Regression": {"C": [0.01, 0.1]},
-        }.get(model_name, {})
+        param_grid = generate_param_grid(model_name)
 
         try:
             if param_grid:
@@ -77,6 +77,7 @@ def train_and_evaluate_models(
                 if hasattr(model, "predict_proba")
                 else None
             )
+
             all_predictions.extend(predictions)
             all_probabilities.extend(
                 probabilities
@@ -87,9 +88,10 @@ def train_and_evaluate_models(
             logger.info(
                 f"Получено {len(predictions)} предсказаний для модели {model_name}"
             )
-            logger.info(
-                f"Получено {len(probabilities) if probabilities is not None else 0} вероятностей для модели {model_name}"
-            )
+            if probabilities is not None:
+                logger.info(
+                    f"Получено {len(probabilities)} вероятностей для модели {model_name}"
+                )
 
             accuracy = accuracy_score(y_test, predictions)
             f1 = f1_score(y_test, predictions)
@@ -101,6 +103,7 @@ def train_and_evaluate_models(
 
         except Exception as e:
             logger.error(f"Ошибка при обработке модели {model_name}: {e}")
+            logger.error(traceback.format_exc())
 
     logger.info("Завершено обучение и оценка моделей")
     return total_predictions, correct_predictions, all_predictions, all_probabilities
