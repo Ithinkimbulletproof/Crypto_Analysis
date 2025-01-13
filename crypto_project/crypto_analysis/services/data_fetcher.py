@@ -1,6 +1,6 @@
 import ccxt
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from django.db.models import Max
 from django.utils import timezone
 from crypto_analysis.models import MarketData
@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 def get_default_start_date():
-    one_year_ago = datetime.now() - timedelta(days=365)
-    return int(one_year_ago.timestamp() * 1000)
+    start_date = datetime(2021, 1, 1)
+    return int(start_date.timestamp() * 1000)
 
 
 def fetch_data():
@@ -90,7 +90,6 @@ def store_data(symbol, exchange, record):
     logger.info(
         f"Storing data with timestamp: {timestamp}, Naive Date: {naive_date}, Aware Date: {aware_date}"
     )
-
     try:
         MarketData.objects.update_or_create(
             cryptocurrency=symbol,

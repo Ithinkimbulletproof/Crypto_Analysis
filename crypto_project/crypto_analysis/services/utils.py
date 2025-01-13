@@ -7,11 +7,11 @@ logger = logging.getLogger(__name__)
 
 def save_predictions(predictions, probabilities, crypto, dates):
     logger.info(f"Сохранение предсказаний для криптовалюты: {crypto}")
-
     if len(predictions) != len(probabilities) or len(predictions) != len(dates):
-        logger.error(f"Несоответствие размеров списков. predictions={len(predictions)}, probabilities={len(probabilities)}, dates={len(dates)}")
+        logger.error(
+            f"Несоответствие размеров списков. predictions={len(predictions)}, probabilities={len(probabilities)}, dates={len(dates)}"
+        )
         return
-
     saved_count = 0
     for i, prediction in enumerate(predictions):
         try:
@@ -27,6 +27,9 @@ def save_predictions(predictions, probabilities, crypto, dates):
             )
             saved_count += 1
         except Exception as e:
-            logger.error(f"Ошибка при сохранении предсказания для {crypto} на {dates[i]}: {str(e)}")
-
-    logger.info(f"Общее количество успешно сохранённых предсказаний для {crypto}: {saved_count}")
+            logger.error(
+                f"Ошибка при сохранении предсказания для {crypto} на {dates[i]}: {str(e)}"
+            )
+    logger.info(
+        f"Общее количество успешно сохранённых предсказаний для {crypto}: {saved_count}"
+    )
