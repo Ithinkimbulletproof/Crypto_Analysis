@@ -16,7 +16,20 @@ def get_default_start_date():
 
 def fetch_data():
     exchanges = [ccxt.binance()]
-    symbols = ["BTC/USDT"]
+    symbols = [
+        "BTC/USDT",
+        "ETH/USDT",
+        "TON/USDT",
+        "XRP/USDT",
+        "BNB/USDT",
+        "ADA/USDT",
+        "SOL/USDT",
+        "DOGE/USDT",
+        "MATIC/USDT",
+        "DOT/USDT",
+        "LTC/USDT",
+        "AVAX/USDT",
+    ]
     timeframe = "1h"
     default_start_date = get_default_start_date()
     logger.info(f"Получение данных для криптовалютных пар: {symbols}")

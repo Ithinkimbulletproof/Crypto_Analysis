@@ -19,7 +19,20 @@ logger = logging.getLogger(__name__)
 
 
 def analyze_and_update():
-    cryptocurrencies = ["BTC/USDT"]
+    cryptocurrencies = [
+        "BTC/USDT",
+        "ETH/USDT",
+        "TON/USDT",
+        "XRP/USDT",
+        "BNB/USDT",
+        "ADA/USDT",
+        "SOL/USDT",
+        "DOGE/USDT",
+        "MATIC/USDT",
+        "DOT/USDT",
+        "LTC/USDT",
+        "AVAX/USDT",
+    ]
     models = get_models()
     total_predictions = 0
     correct_predictions = 0
@@ -127,7 +140,6 @@ def analyze_and_update():
                 logger.info(f"Количество предсказаний: {len(predictions)}")
                 logger.info(f"Количество вероятностей: {len(probabilities)}")
                 if len(predictions) == len(probabilities) == len(dates):
-                    # Используем только последнее предсказание
                     latest_prediction = predictions[-1]
                     latest_probability = probabilities[-1]
                     latest_date = dates[-1]
@@ -140,7 +152,6 @@ def analyze_and_update():
                     probabilities = probabilities[:min_length]
                     dates = dates[:min_length]
                     logger.warning(f"Список данных обрезан до размера {min_length}")
-                    # Используем только последнее предсказание
                     latest_prediction = predictions[-1]
                     latest_probability = probabilities[-1]
                     latest_date = dates[-1]
