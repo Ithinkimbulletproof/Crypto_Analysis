@@ -1,5 +1,7 @@
+import os
 import logging
 import numpy as np
+from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
 from crypto_analysis.models import MarketData
 from sklearn.model_selection import train_test_split
@@ -17,22 +19,11 @@ from crypto_analysis.services.utils import save_predictions
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+load_dotenv()
+
 
 def analyze_and_update():
-    cryptocurrencies = [
-        "BTC/USDT",
-        "ETH/USDT",
-        "TON/USDT",
-        "XRP/USDT",
-        "BNB/USDT",
-        "ADA/USDT",
-        "SOL/USDT",
-        "DOGE/USDT",
-        "MATIC/USDT",
-        "DOT/USDT",
-        "LTC/USDT",
-        "AVAX/USDT",
-    ]
+    cryptocurrencies = os.getenv("CRYPTOPAIRS").split(",")
     models = get_models()
     total_predictions = 0
     correct_predictions = 0

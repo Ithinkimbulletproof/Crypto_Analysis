@@ -71,6 +71,7 @@ def compute_average_data(data_all, window=14):
             "close_price",
             "volume",
             "cryptocurrency",
+            "exchange",
         }
         missing_columns = required_columns - set(df.columns)
         if missing_columns:
@@ -91,14 +92,9 @@ def compute_average_data(data_all, window=14):
             logger.warning("Все данные удалены после обработки пропусков.")
             return None
         logger.info(f"Количество строк после удаления пропусков: {len(df)}")
-        if df["cryptocurrency"].nunique() > 1 or df["date"].duplicated().any():
-            avg_df = (
-                df.groupby(["date", "cryptocurrency"])
-                .mean(numeric_only=True)
-                .reset_index()
-            )
-        else:
-            avg_df = df.copy()
+        avg_df = (
+            df.groupby(["date", "cryptocurrency"]).mean(numeric_only=True).reset_index()
+        )
         if len(avg_df) < window:
             logger.warning(
                 f"Недостаточно данных для анализа (требуется минимум {window} записей). Попробуйте уменьшить окно анализа."
