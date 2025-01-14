@@ -1,6 +1,7 @@
 import logging
 import numpy as np
 import pandas as pd
+from crypto_analysis.services.volatility import calculate_volatility
 from ta.trend import SMAIndicator, CCIIndicator
 from ta.momentum import RSIIndicator
 from sklearn.preprocessing import StandardScaler
@@ -168,9 +169,15 @@ def prepare_data_for_analysis(data_all, window=14):
             )
             return None
         logger.debug(f"Первые строки подготовленных данных: {avg_df.head()}")
+
+        avg_df = calculate_volatility(avg_df, 30)
+        avg_df = calculate_volatility(avg_df, 90)
+        avg_df = calculate_volatility(avg_df, 180)
+
     except Exception as e:
         logger.error(f"Ошибка при подготовке данных: {str(e)}")
         return None
+
     return avg_df
 
 
@@ -201,26 +208,32 @@ def get_features_and_labels(df):
         "SMA_14",
         "RSI_14",
         "CCI_14",
-        "volatility",
+        "volatility_30_days",
+        "volatility_90_days",
+        "volatility_180_days",
         "volume_change",
         "MACD",
         "day_of_week",
         "hour_of_day",
     ]
+
     try:
         if not set(feature_columns).issubset(df.columns):
             missing_columns = set(feature_columns) - set(df.columns)
             raise ValueError(
                 f"Отсутствуют необходимые столбцы: {', '.join(missing_columns)}"
             )
+
         X = df[feature_columns]
         y = df["price_change"].apply(lambda x: 1 if x > 0 else 0)
+
     except ValueError as e:
         logger.error(f"Ошибка при подготовке признаков и меток: {str(e)}")
         return None, None
     except Exception as e:
         logger.error(f"Неизвестная ошибка при подготовке признаков и меток: {str(e)}")
         return None, None
+
     return X.values, y.values
 
 

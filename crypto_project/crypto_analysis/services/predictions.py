@@ -81,7 +81,7 @@ def analyze_and_update():
                 logger.debug(f"Пример признаков: {X[:3]}")
                 logger.debug(f"Пример меток: {y[:3]}")
                 logger.info(
-                    f"Масштабирование и ресэмплинг данных для {crypto} ({period})"
+                    f"Масштабирование и ресэмплирование данных для {crypto} ({period})"
                 )
                 X_resampled, y_resampled, original_indices_resampled = (
                     scale_and_resample_data(X, y)
@@ -121,11 +121,7 @@ def analyze_and_update():
                 logger.info(f"Количество дат: {len(dates)}")
                 total_predictions, correct_predictions, predictions, probabilities = (
                     train_and_evaluate_models(
-                        models,
-                        X_train,
-                        y_train,
-                        X_test,
-                        y_test,
+                        models, X_train, y_train, X_test, y_test, df_period
                     )
                 )
                 logger.info(f"Количество предсказаний: {len(predictions)}")
