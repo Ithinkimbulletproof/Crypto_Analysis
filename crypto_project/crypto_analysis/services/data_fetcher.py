@@ -1,11 +1,13 @@
 import os
+import time
 import ccxt
 import logging
+import asyncio
+from asgiref.sync import async_to_sync
 from dotenv import load_dotenv
 from datetime import datetime, timezone
 from django.db.models import Max
 from crypto_analysis.models import MarketData
-import time
 
 load_dotenv()
 
@@ -23,36 +25,36 @@ def fetch_data():
     symbols = os.getenv("CRYPTOPAIRS").split(",")
     timeframe = "1h"
     default_start_date = get_default_start_date()
+
     logger.info(f"Получение данных для криптовалютных пар: {symbols}")
     logger.info(f"Стартовый timestamp для данных: {default_start_date}")
-    for exchange in exchanges:
-        logger.info(f"Начало обработки биржи: {exchange.id}")
-        try:
-            process_exchange(exchange, symbols, default_start_date, timeframe)
-            logger.info(f"Завершена обработка биржи: {exchange.id}")
-        except Exception as e:
-            logger.error(f"Ошибка работы с биржей {exchange.id}: {str(e)}")
+
+    async_to_sync(process_exchanges_async)(exchanges, symbols, default_start_date, timeframe)
+
     logger.info("Загрузка данных завершена")
 
 
-def process_exchange(exchange, symbols, default_start_date, timeframe):
-    logger.info(f"Начало обработки биржи: {exchange.id}")
-    try:
-        exchange.load_markets()
-        for symbol in symbols:
-            logger.info(f"Обработка пары {symbol} на {exchange.id}")
-            if symbol in exchange.markets:
-                last_date = get_last_date(symbol, exchange)
-                logger.info(
-                    f"Последняя дата для {symbol} на {exchange.id}: {last_date}"
-                )
-                since = get_since(last_date, default_start_date)
-                logger.info(f"Дата начала для загрузки данных: {since}")
-                fetch_and_store_data(exchange, symbol, since, timeframe)
-            else:
-                logger.warning(f"Пара {symbol} не найдена на {exchange.id}")
-    except Exception as e:
-        logger.error(f"Ошибка при обработке биржи {exchange.id}: {str(e)}")
+async def process_exchanges_async(exchanges, symbols, default_start_date, timeframe):
+    tasks = [
+        asyncio.create_task(
+            fetch_and_store_async(exchange, symbols, default_start_date, timeframe)
+        )
+        for exchange in exchanges
+    ]
+    await asyncio.gather(*tasks)
+
+
+async def fetch_and_store_async(exchange, symbols, since, timeframe):
+    tasks = []
+    for symbol in symbols:
+        if symbol in exchange.load_markets():
+            await asyncio.sleep(exchange.rateLimit / 1000)
+            tasks.append(
+                asyncio.to_thread(fetch_and_store_data, exchange, symbol, since, timeframe)
+            )
+        else:
+            logger.warning(f"Пара {symbol} не найдена на {exchange.id}")
+    await asyncio.gather(*tasks)
 
 
 def fetch_and_store_data(exchange, symbol, since, timeframe):
@@ -70,9 +72,6 @@ def fetch_and_store_data(exchange, symbol, since, timeframe):
                 timestamp = record[0]
                 naive_date = datetime.utcfromtimestamp(timestamp / 1000)
                 aware_date = naive_date.replace(tzinfo=timezone.utc)
-                logger.debug(
-                    f"Timestamp: {timestamp}, Naive Date: {naive_date}, Aware Date: {aware_date}"
-                )
                 all_data.append(
                     (
                         symbol,
