@@ -2,8 +2,8 @@ import os
 import logging
 import pandas as pd
 from dotenv import load_dotenv
-from datetime import datetime, timedelta, timezone
 from crypto_analysis.models import MarketData
+from datetime import datetime, timedelta, timezone
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,26 +39,24 @@ def preprocess_data(data_all: list, volatility_window: int = 30) -> pd.DataFrame
         return pd.DataFrame()
 
     df = pd.DataFrame(data_all)
+    df["date"] = pd.to_datetime(df["date"])
     df["close"].fillna(method="ffill", inplace=True)
+
+    df["price_change_24h"] = df["close"].pct_change(periods=1) * 100
+    df["price_change_7d"] = df["close"].pct_change(periods=7) * 100
+
+    df["SMA_30"] = df["close"].rolling(window=30).mean()
+    df["SMA_90"] = df["close"].rolling(window=90).mean()
+    df["SMA_180"] = df["close"].rolling(window=180).mean()
 
     df[f"volatility_{volatility_window}"] = (
         df["close"].rolling(window=volatility_window).std()
     )
 
-    return df
+    df["future_24h_change"] = df["close"].shift(-1) - df["close"]
+    df["future_24h_up"] = (df["future_24h_change"] > 0).astype(int)
 
-
-def calculate_market_volatility(
-    all_cryptos_data: list, volatility_window: int = 30
-) -> pd.DataFrame:
-    df_all = pd.DataFrame(all_cryptos_data)
-    df_all["close"].fillna(method="ffill", inplace=True)
-
-    df_all[f"market_volatility_{volatility_window}"] = (
-        df_all["close"].rolling(window=volatility_window).std()
-    )
-
-    return df_all
+    return df.dropna()
 
 
 def split_data_by_period(df: pd.DataFrame, periods: list):
@@ -93,23 +91,6 @@ def save_to_csv(
     logger.info(f"Данные сохранены для {cryptocurrency} ({period}) в {file_path}")
 
 
-def save_data_to_csv_with_check(
-    df: pd.DataFrame,
-    cryptocurrency: str,
-    period: str,
-    file_path: str = "processed_data.csv",
-):
-    if os.path.exists(file_path):
-        mode = "a"
-        header = False
-    else:
-        mode = "w"
-        header = True
-
-    df.to_csv(file_path, mode=mode, header=header, index=False)
-    logger.info(f"Данные сохранены для {cryptocurrency} ({period}) в {file_path}")
-
-
 def process_and_export_data(
     volatility_window: int = 30, periods: list = [90, 180, 365]
 ):
@@ -133,15 +114,15 @@ def process_and_export_data(
 
             split_data = split_data_by_period(df, periods)
             for period, data in split_data.items():
-                save_data_to_csv_with_check(data, crypto, f"{period}_days")
+                save_to_csv(data, crypto, f"{period}_days")
 
             processed_cryptos_count += 1
 
         except Exception as e:
             logger.error(f"Ошибка обработки {crypto}: {str(e)}")
 
-    market_df = calculate_market_volatility(all_cryptos_data, volatility_window)
-    save_data_to_csv_with_check(market_df, "market", "all_periods")
+    market_df = pd.concat(all_cryptos_data)
+    save_to_csv(market_df, "market", "all_periods")
 
     log_overall_stats(processed_cryptos_count)
 

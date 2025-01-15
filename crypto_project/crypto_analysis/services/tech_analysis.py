@@ -1,12 +1,12 @@
 import os
 import logging
 import pandas as pd
-from dotenv import load_dotenv
-from datetime import datetime, timedelta, timezone
-from ta.trend import SMAIndicator, CCIIndicator
-from ta.momentum import RSIIndicator
-from ta.volatility import AverageTrueRange, BollingerBands
 from ta.trend import MACD
+from dotenv import load_dotenv
+from ta.momentum import RSIIndicator
+from ta.trend import SMAIndicator, CCIIndicator
+from datetime import datetime, timedelta, timezone
+from ta.volatility import AverageTrueRange, BollingerBands
 from sklearn.metrics import roc_auc_score, confusion_matrix, classification_report
 
 logging.basicConfig(level=logging.INFO)
@@ -64,7 +64,7 @@ def apply_technical_analysis(df):
 
 def enhance_data_processing(df):
     start_time = datetime.now()
-    for lag in [1, 3, 7]:
+    for lag in [1, 3, 7, 30, 90]:
         df[f"close_lag_{lag}"] = df["close"].shift(lag)
         df[f"RSI_lag_{lag}"] = df["RSI"].shift(lag)
 
@@ -95,6 +95,17 @@ def split_data_by_period(df):
     return df_90, df_180, df_365
 
 
+def generate_target_variable(df, period=24):
+    df["target"] = 0
+
+    df.loc[df["close"].shift(-period) > df["close"], "target"] = 1
+
+    df.loc[df["close"].shift(-period) < df["close"], "target"] = -1
+
+    df["target"] = df["target"].astype(int)
+    return df
+
+
 def save_to_csv(
     df, cryptocurrency, period, file_path="processed_with_technical_analysis.csv"
 ):
@@ -109,7 +120,7 @@ def save_to_csv(
 
 
 def evaluate_model_performance(
-    df, target_column="signal", prediction_column="predicted_signal"
+    df, target_column="target", prediction_column="predicted_signal"
 ):
     if target_column not in df.columns or prediction_column not in df.columns:
         logger.error("Не найдены целевые или предсказанные столбцы для анализа.")
@@ -136,17 +147,6 @@ def evaluate_model_performance(
 
     except Exception as e:
         logger.error(f"Ошибка анализа метрик: {str(e)}")
-
-
-def generate_signals(df):
-    try:
-        df["signal"] = 0
-        df.loc[df["RSI"] < 30, "signal"] = 1
-        df.loc[df["RSI"] > 70, "signal"] = -1
-        df["predicted_signal"] = df["signal"].shift(-1)
-    except Exception as e:
-        logger.error(f"Ошибка генерации сигналов: {str(e)}")
-    return df
 
 
 def process_and_evaluate_data():
@@ -176,7 +176,7 @@ def process_and_evaluate_data():
 
             df_crypto = apply_technical_analysis(df_crypto)
             df_crypto = enhance_data_processing(df_crypto)
-            df_crypto = generate_signals(df_crypto)
+            df_crypto = generate_target_variable(df_crypto, period=24)
 
             evaluate_model_performance(df_crypto)
             save_to_csv(df_crypto, crypto, "evaluation")

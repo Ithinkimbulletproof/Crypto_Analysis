@@ -1,11 +1,12 @@
 import os
+import time
 import ccxt
 import logging
 from dotenv import load_dotenv
-from datetime import datetime, timezone
 from django.db.models import Max
+from datetime import datetime, timezone
 from crypto_analysis.models import MarketData
-import time
+
 
 load_dotenv()
 
