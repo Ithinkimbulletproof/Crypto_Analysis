@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 from crypto_analysis.services.data_fetcher import fetch_data
-from crypto_analysis.services.predictions import analyze_and_update
+from crypto_analysis.services.data_preprocessing import analyze_and_update
 
 
 class Command(BaseCommand):
