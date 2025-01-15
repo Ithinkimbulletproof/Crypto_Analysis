@@ -119,6 +119,10 @@ def analyze_and_update():
                     continue
                 dates = df_period.iloc[test_original_indices].date.tolist()
                 logger.info(f"Количество дат: {len(dates)}")
+                volatilities = (
+                    df_period["volatility"].iloc[test_original_indices].tolist()
+                )
+                logger.info(f"Количество волатильностей: {len(volatilities)}")
                 total_predictions, correct_predictions, predictions, probabilities = (
                     train_and_evaluate_models(
                         models, X_train, y_train, X_test, y_test, df_period
@@ -126,25 +130,65 @@ def analyze_and_update():
                 )
                 logger.info(f"Количество предсказаний: {len(predictions)}")
                 logger.info(f"Количество вероятностей: {len(probabilities)}")
-                if len(predictions) == len(probabilities) == len(dates):
+                if (
+                    len(predictions) != len(probabilities)
+                    or len(predictions) != len(dates)
+                    or len(predictions) != len(volatilities)
+                ):
+                    logger.error(
+                        f"Несоответствие размеров списков. predictions={len(predictions)}, probabilities={len(probabilities)}, dates={len(dates)}, volatilities={len(volatilities)}"
+                    )
+                    continue
+                if (
+                    len(predictions)
+                    == len(probabilities)
+                    == len(dates)
+                    == len(volatilities)
+                ):
                     latest_prediction = predictions[-1]
                     latest_probability = probabilities[-1]
                     latest_date = dates[-1]
+                    latest_volatility = volatilities[-1]
                     save_predictions(
-                        [latest_prediction], [latest_probability], crypto, [latest_date]
+                        [latest_prediction],
+                        [latest_probability],
+                        crypto,
+                        [latest_date],
+                        [latest_volatility],
                     )
                 else:
-                    min_length = min(len(predictions), len(probabilities), len(dates))
+                    min_length = min(
+                        len(predictions),
+                        len(probabilities),
+                        len(dates),
+                        len(volatilities),
+                    )
+                    logger.warning(f"Список данных обрезан до размера {min_length}")
                     predictions = predictions[:min_length]
                     probabilities = probabilities[:min_length]
                     dates = dates[:min_length]
-                    logger.warning(f"Список данных обрезан до размера {min_length}")
-                    latest_prediction = predictions[-1]
-                    latest_probability = probabilities[-1]
-                    latest_date = dates[-1]
-                    save_predictions(
-                        [latest_prediction], [latest_probability], crypto, [latest_date]
-                    )
+                    volatilities = volatilities[:min_length]
+                    if (
+                        len(predictions)
+                        == len(probabilities)
+                        == len(dates)
+                        == len(volatilities)
+                    ):
+                        latest_prediction = predictions[-1]
+                        latest_probability = probabilities[-1]
+                        latest_date = dates[-1]
+                        latest_volatility = volatilities[-1]
+                        save_predictions(
+                            [latest_prediction],
+                            [latest_probability],
+                            crypto,
+                            [latest_date],
+                            [latest_volatility],
+                        )
+                    else:
+                        logger.error(
+                            f"Несоответствие размеров списков после обрезки. predictions={len(predictions)}, probabilities={len(probabilities)}, dates={len(dates)}, volatilities={len(volatilities)}"
+                        )
         except Exception as e:
             logger.error(f"Ошибка обработки {crypto}: {str(e)}")
     log_overall_stats(total_predictions, correct_predictions)

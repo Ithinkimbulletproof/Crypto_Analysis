@@ -51,48 +51,39 @@ def generate_param_grid(model_name):
 
 def train_and_evaluate_models(models, X_train, y_train, X_test, y_test, df_test):
     logger.info("Начало обучения и оценки моделей")
-
     tscv = TimeSeriesSplit(n_splits=3)
     all_predictions = []
     all_probabilities = []
     total_predictions = 0
     correct_predictions = 0
-
     volatility = df_test["volatility_30_days"].iloc[-1]
 
     for model_name, model in models.items():
         logger.info(f"Обработка модели: {model_name}")
-
         param_grid = generate_param_grid(model_name)
-
         try:
             if param_grid:
                 logger.info(f"Параметры для модели {model_name}: {param_grid}")
                 model = GridSearchCV(
                     model, param_grid, cv=tscv, scoring="accuracy", n_jobs=-1, verbose=1
                 )
-
             logger.info(f"Обучение модели {model_name}")
             start_time = time.time()
             model.fit(X_train, y_train)
             end_time = time.time()
             logger.info(f"Время обучения модели: {end_time - start_time:.2f} секунд")
-
             predictions = model.predict(X_test)
             probabilities = (
                 model.predict_proba(X_test)[:, 1]
                 if hasattr(model, "predict_proba")
                 else None
             )
-
             adjusted_threshold = adjust_threshold_based_on_volatility(volatility)
             logger.info(f"Используем скорректированный порог: {adjusted_threshold:.2f}")
-
             if probabilities is not None:
                 adjusted_predictions = (probabilities >= adjusted_threshold).astype(int)
             else:
                 adjusted_predictions = predictions
-
             all_predictions.extend(adjusted_predictions)
             all_probabilities.extend(
                 probabilities
@@ -100,19 +91,24 @@ def train_and_evaluate_models(models, X_train, y_train, X_test, y_test, df_test)
                 else [None] * len(adjusted_predictions)
             )
 
+            if len(all_predictions) != len(X_test) or len(all_probabilities) != len(
+                X_test
+            ):
+                logger.error(
+                    f"Несоответствие размера предсказаний с размером тестовых данных! ({len(all_predictions)} vs {len(X_test)})"
+                )
+                continue
+
             logger.info(
                 f"Получено {len(adjusted_predictions)} предсказаний для модели {model_name}"
             )
-
             accuracy = accuracy_score(y_test, adjusted_predictions)
             f1 = f1_score(y_test, adjusted_predictions)
             logger.info(
                 f"Точность модели {model_name}: {accuracy:.2%}, F1-score: {f1:.2%}"
             )
-
             total_predictions += len(adjusted_predictions)
             correct_predictions += sum(adjusted_predictions == y_test)
-
         except Exception as e:
             logger.error(f"Ошибка при обработке модели {model_name}: {e}")
             logger.error(traceback.format_exc())

@@ -2,8 +2,8 @@ from django.db import models
 
 
 class CryptoPrediction(models.Model):
-    cryptocurrency_pair = models.CharField(max_length=50)
-    prediction_date = models.DateField()
+    cryptocurrency_pair = models.CharField(max_length=50, db_index=True)
+    prediction_date = models.DateField(db_index=True)
     predicted_price_change = models.FloatField()
     probability_increase = models.DecimalField(
         max_digits=10, decimal_places=6, null=True, blank=True
@@ -11,12 +11,13 @@ class CryptoPrediction(models.Model):
     probability_decrease = models.DecimalField(
         max_digits=10, decimal_places=6, null=True, blank=True
     )
+    confidence_level = models.FloatField(default=1.0)
 
     class Meta:
         unique_together = ("cryptocurrency_pair", "prediction_date")
 
     def __str__(self):
-        return f"{self.cryptocurrency_pair} | {self.prediction_date} | Predicted Change: {self.predicted_price_change:.2f}"
+        return f"{self.cryptocurrency_pair} | {self.prediction_date} | Predicted Change: {self.predicted_price_change:.2f} | Confidence: {self.confidence_level:.2f}"
 
 
 class MarketData(models.Model):
