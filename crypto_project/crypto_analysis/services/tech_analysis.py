@@ -8,12 +8,17 @@ from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator, CCIIndicator
 from datetime import datetime, timedelta, timezone
 from ta.volatility import AverageTrueRange, BollingerBands
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
 from sklearn.metrics import roc_auc_score, confusion_matrix, classification_report
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 load_dotenv()
+
+numeric_columns = ["close", "high", "low", "RSI", "SMA_50", "SMA_200"]
+imputer = IterativeImputer(max_iter=10, random_state=42)
 
 
 def fetch_data_from_csv(file_path="processed_data.csv"):
@@ -26,7 +31,9 @@ def fetch_data_from_csv(file_path="processed_data.csv"):
         return None
 
     missing_data = df.isnull().sum()
-    logger.info(f"Пропущенные значения в исходных данных:\n{missing_data[missing_data > 0]}")
+    logger.info(
+        f"Пропущенные значения в исходных данных:\n{missing_data[missing_data > 0]}"
+    )
 
     return df
 
@@ -53,13 +60,20 @@ def apply_technical_analysis(df):
     df_copy["high"] = pd.to_numeric(df_copy["high"], errors="coerce")
     df_copy["low"] = pd.to_numeric(df_copy["low"], errors="coerce")
 
-    numeric_columns = ["close", "high", "low"]
-    df_copy[numeric_columns] = df_copy[numeric_columns].interpolate(method="linear", limit_direction="both")
+    df_copy[numeric_columns] = imputer.fit_transform(df_copy[numeric_columns])
+
+    logger.info(
+        f"Пропущенные значения после обработки данных:\n{df_copy.isnull().sum()}"
+    )
 
     df_copy.loc[:, "SMA_50"] = SMAIndicator(df_copy["close"], window=50).sma_indicator()
-    df_copy.loc[:, "SMA_200"] = SMAIndicator(df_copy["close"], window=200).sma_indicator()
+    df_copy.loc[:, "SMA_200"] = SMAIndicator(
+        df_copy["close"], window=200
+    ).sma_indicator()
     df_copy.loc[:, "RSI"] = RSIIndicator(df_copy["close"], window=14).rsi()
-    df_copy.loc[:, "CCI"] = CCIIndicator(df_copy["high"], df_copy["low"], df_copy["close"], window=14).cci()
+    df_copy.loc[:, "CCI"] = CCIIndicator(
+        df_copy["high"], df_copy["low"], df_copy["close"], window=14
+    ).cci()
     atr = AverageTrueRange(df_copy["high"], df_copy["low"], df_copy["close"], window=14)
     df_copy.loc[:, "atr"] = atr.average_true_range()
     bb = BollingerBands(df_copy["close"], window=20, window_dev=2)
@@ -73,13 +87,22 @@ def apply_technical_analysis(df):
     df_copy.loc[:, "macd_diff"] = macd.macd_diff()
 
     missing_data_after_analysis = df_copy.isnull().sum()
-    logger.info(f"Пропущенные значения после анализа технических индикаторов:\n{missing_data_after_analysis[missing_data_after_analysis > 0]}")
+    logger.info(
+        f"Пропущенные значения после анализа технических индикаторов:\n{missing_data_after_analysis[missing_data_after_analysis > 0]}"
+    )
 
     df_copy = df_copy.apply(
-        lambda col: col.interpolate(method="linear", limit_direction="forward") if col.dtype in ["float64", "int64"] else col
+        lambda col: (
+            col.interpolate(method="linear", limit_direction="forward")
+            if col.dtype in ["float64", "int64"]
+            else col
+        )
     )
+
     missing_data_after_interpolation = df_copy.isnull().sum()
-    logger.info(f"Пропущенные значения после интерполяции:\n{missing_data_after_interpolation[missing_data_after_interpolation > 0]}")
+    logger.info(
+        f"Пропущенные значения после интерполяции:\n{missing_data_after_interpolation[missing_data_after_interpolation > 0]}"
+    )
 
     df_copy["predicted_signal"] = 0
     df_copy.loc[df_copy["SMA_50"] > df_copy["SMA_200"], "predicted_signal"] = 1
@@ -103,7 +126,9 @@ def enhance_data_processing(df):
     df["RSI"] = df["RSI"].interpolate(method="linear", limit_direction="both")
 
     missing_data_after_interpolation = df.isnull().sum()
-    logger.info(f"Пропущенные значения после интерполяции:\n{missing_data_after_interpolation[missing_data_after_interpolation > 0]}")
+    logger.info(
+        f"Пропущенные значения после интерполяции:\n{missing_data_after_interpolation[missing_data_after_interpolation > 0]}"
+    )
 
     for column in df.columns:
         if df[column].isnull().any():
@@ -142,7 +167,9 @@ def save_to_csv(
     df, cryptocurrency, period, file_path="processed_with_technical_analysis.csv"
 ):
     missing_data_before_save = df.isnull().sum()
-    logger.info(f"Пропущенные значения перед сохранением:\n{missing_data_before_save[missing_data_before_save > 0]}")
+    logger.info(
+        f"Пропущенные значения перед сохранением:\n{missing_data_before_save[missing_data_before_save > 0]}"
+    )
 
     df["cryptocurrency"] = cryptocurrency
     df["period"] = period
@@ -154,16 +181,22 @@ def save_to_csv(
     logger.info(f"Данные сохранены в {file_path}")
 
 
-def evaluate_model_performance(df, target_column="target", prediction_column="predicted_signal"):
+def evaluate_model_performance(
+    df, target_column="target", prediction_column="predicted_signal"
+):
     if target_column not in df.columns or prediction_column not in df.columns:
-        logger.error(f"Не найдены целевые или предсказанные столбцы для анализа: {target_column}, {prediction_column}")
+        logger.error(
+            f"Не найдены целевые или предсказанные столбцы для анализа: {target_column}, {prediction_column}"
+        )
         return
 
     y_true = df[target_column].dropna()
     y_pred = df[prediction_column].dropna()
 
     if len(y_true) != len(y_pred):
-        logger.warning(f"Размеры целевых ({len(y_true)}) и предсказанных данных ({len(y_pred)}) не совпадают.")
+        logger.warning(
+            f"Размеры целевых ({len(y_true)}) и предсказанных данных ({len(y_pred)}) не совпадают."
+        )
         return
 
     y_pred = np.where(y_pred == 1, 1, 0)
