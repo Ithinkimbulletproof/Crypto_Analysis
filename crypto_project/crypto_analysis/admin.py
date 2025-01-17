@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import MarketData, CryptoPrediction
+from .models import MarketData, ShortTermCryptoPrediction, LongTermCryptoPrediction
 
 
 @admin.register(MarketData)
@@ -12,23 +12,41 @@ class MarketDataAdmin(admin.ModelAdmin):
         "low_price",
         "close_price",
         "volume",
+        "exchange",
     )
-    list_filter = ("cryptocurrency", "date")
-    search_fields = ("cryptocurrency",)
+    list_filter = ("cryptocurrency", "exchange", "date")
+    search_fields = ("cryptocurrency", "exchange")
     date_hierarchy = "date"
     ordering = ("-date",)
 
 
-@admin.register(CryptoPrediction)
-class CryptoPredictionAdmin(admin.ModelAdmin):
+@admin.register(ShortTermCryptoPrediction)
+class ShortTermCryptoPredictionAdmin(admin.ModelAdmin):
     list_display = (
         "cryptocurrency_pair",
         "prediction_date",
         "predicted_price_change",
-        "probability_increase",
-        "probability_decrease",
+        "predicted_close",
+        "model_type",
+        "confidence_level",
     )
-    list_filter = ("cryptocurrency_pair", "prediction_date")
-    search_fields = ("cryptocurrency_pair",)
+    list_filter = ("cryptocurrency_pair", "model_type", "prediction_date")
+    search_fields = ("cryptocurrency_pair", "model_type")
+    date_hierarchy = "prediction_date"
+    ordering = ("-prediction_date",)
+
+
+@admin.register(LongTermCryptoPrediction)
+class LongTermCryptoPredictionAdmin(admin.ModelAdmin):
+    list_display = (
+        "cryptocurrency_pair",
+        "prediction_date",
+        "predicted_price_change",
+        "predicted_close",
+        "model_type",
+        "confidence_level",
+    )
+    list_filter = ("cryptocurrency_pair", "model_type", "prediction_date")
+    search_fields = ("cryptocurrency_pair", "model_type")
     date_hierarchy = "prediction_date"
     ordering = ("-prediction_date",)

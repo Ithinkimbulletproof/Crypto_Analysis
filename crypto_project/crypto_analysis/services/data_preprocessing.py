@@ -20,27 +20,50 @@ def fetch_data_from_database(crypto: str) -> list:
         data_all = (
             MarketData.objects.filter(cryptocurrency=crypto)
             .order_by("date")
-            .values_list("date", "close", "cryptocurrency")
+            .values_list(
+                "date", "close_price", "high_price", "low_price", "cryptocurrency"
+            )
         )
 
         if not data_all:
             logger.warning(f"Нет данных для {crypto}. Пропускаем.")
             return []
 
-        return list(data_all)
+        df = pd.DataFrame(data_all, columns=["date", "close", "high", "low", "cryptocurrency"])
+
+        if df.isnull().sum().any():
+            logger.warning(f"Есть пропущенные значения для {crypto}, начинаем обработку...")
+
+        df["close"] = df["close"].fillna(df["close"].mean())
+        df["high"] = df["high"].fillna(df["high"].mean())
+        df["low"] = df["low"].fillna(df["low"].mean())
+
+        return list(df.itertuples(index=False, name=None))
+
     except Exception as e:
         logger.error(f"Ошибка при запросе данных для {crypto}: {str(e)}")
         return []
 
 
-def preprocess_data(data_all: list, volatility_window: int = 30) -> pd.DataFrame:
+def preprocess_data(
+    data_all: list, volatility_window: int = 30, k_window: int = 14
+) -> pd.DataFrame:
     if not data_all:
         logger.warning("Нет данных для анализа.")
         return pd.DataFrame()
 
-    df = pd.DataFrame(data_all)
+    df = pd.DataFrame(
+        data_all, columns=["date", "close", "high", "low", "cryptocurrency"]
+    )
     df["date"] = pd.to_datetime(df["date"])
-    df["close"].fillna(method="ffill", inplace=True)
+
+    df["close"] = df["close"].interpolate(method='linear')
+    df["high"] = df["high"].interpolate(method='linear')
+    df["low"] = df["low"].interpolate(method='linear')
+
+    df["close"] = df["close"].fillna(df["close"].mean())
+    df["high"] = df["high"].fillna(df["high"].mean())
+    df["low"] = df["low"].fillna(df["low"].mean())
 
     df["price_change_24h"] = df["close"].pct_change(periods=1) * 100
     df["price_change_7d"] = df["close"].pct_change(periods=7) * 100
@@ -49,14 +72,23 @@ def preprocess_data(data_all: list, volatility_window: int = 30) -> pd.DataFrame
     df["SMA_90"] = df["close"].rolling(window=90).mean()
     df["SMA_180"] = df["close"].rolling(window=180).mean()
 
+    df["SMA_30"] = df["SMA_30"].interpolate(method='linear')
+    df["SMA_90"] = df["SMA_90"].interpolate(method='linear')
+    df["SMA_180"] = df["SMA_180"].interpolate(method='linear')
+
     df[f"volatility_{volatility_window}"] = (
         df["close"].rolling(window=volatility_window).std()
     )
 
+    df[f"volatility_{volatility_window}"] = df[f"volatility_{volatility_window}"].interpolate(method='linear')
+
     df["future_24h_change"] = df["close"].shift(-1) - df["close"]
     df["future_24h_up"] = (df["future_24h_change"] > 0).astype(int)
 
-    return df.dropna()
+    df["lowest_low"] = df["low"].rolling(window=k_window).min()
+    df["highest_high"] = df["high"].rolling(window=k_window).max()
+
+    return df
 
 
 def split_data_by_period(df: pd.DataFrame, periods: list):
@@ -82,13 +114,19 @@ def save_to_csv(
     period: str,
     file_path: str = "processed_data.csv",
 ):
-    df["cryptocurrency"] = cryptocurrency
-    df["period"] = period
-    mode = "a" if os.path.exists(file_path) else "w"
-    header = not os.path.exists(file_path)
+    try:
+        df = df.copy()
+        df.loc[:, "cryptocurrency"] = cryptocurrency
+        df.loc[:, "period"] = period
 
-    df.to_csv(file_path, mode=mode, header=header, index=False)
-    logger.info(f"Данные сохранены для {cryptocurrency} ({period}) в {file_path}")
+        mode = "a" if os.path.exists(file_path) else "w"
+        header = not os.path.exists(file_path)
+
+        df.to_csv(file_path, mode=mode, header=header, index=False)
+        logger.info(f"Данные сохранены для {cryptocurrency} ({period}) в {file_path}")
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении данных: {e}")
+        raise
 
 
 def process_and_export_data(
@@ -110,7 +148,9 @@ def process_and_export_data(
             if df.empty:
                 continue
 
-            all_cryptos_data.append(df[["date", "close", "cryptocurrency"]])
+            all_cryptos_data.append(
+                df[["date", "close", "high", "low", "cryptocurrency"]]
+            )
 
             split_data = split_data_by_period(df, periods)
             for period, data in split_data.items():

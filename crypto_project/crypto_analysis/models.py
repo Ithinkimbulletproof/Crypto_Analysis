@@ -1,23 +1,34 @@
 from django.db import models
 
 
-class CryptoPrediction(models.Model):
+class ShortTermCryptoPrediction(models.Model):
     cryptocurrency_pair = models.CharField(max_length=50, db_index=True)
     prediction_date = models.DateField(db_index=True)
     predicted_price_change = models.FloatField()
-    probability_increase = models.DecimalField(
-        max_digits=10, decimal_places=6, null=True, blank=True
-    )
-    probability_decrease = models.DecimalField(
-        max_digits=10, decimal_places=6, null=True, blank=True
-    )
+    predicted_close = models.FloatField()
+    model_type = models.CharField(max_length=50)
     confidence_level = models.FloatField(default=1.0)
 
     class Meta:
-        unique_together = ("cryptocurrency_pair", "prediction_date")
+        unique_together = ("cryptocurrency_pair", "prediction_date", "model_type")
 
     def __str__(self):
-        return f"{self.cryptocurrency_pair} | {self.prediction_date} | Predicted Change: {self.predicted_price_change:.2f} | Confidence: {self.confidence_level:.2f}"
+        return f"{self.cryptocurrency_pair} | {self.prediction_date} | Predicted Change: {self.predicted_price_change:.2f} | Model: {self.model_type} | Confidence: {self.confidence_level:.2f}"
+
+
+class LongTermCryptoPrediction(models.Model):
+    cryptocurrency_pair = models.CharField(max_length=50, db_index=True)
+    prediction_date = models.DateField(db_index=True)
+    predicted_price_change = models.FloatField()
+    predicted_close = models.FloatField()
+    model_type = models.CharField(max_length=50)
+    confidence_level = models.FloatField(default=1.0)
+
+    class Meta:
+        unique_together = ("cryptocurrency_pair", "prediction_date", "model_type")
+
+    def __str__(self):
+        return f"{self.cryptocurrency_pair} | {self.prediction_date} | Predicted Change: {self.predicted_price_change:.2f} | Model: {self.model_type} | Confidence: {self.confidence_level:.2f}"
 
 
 class MarketData(models.Model):
