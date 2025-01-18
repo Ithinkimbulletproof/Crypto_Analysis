@@ -125,10 +125,19 @@ def enhance_data_processing(df):
     for window in [10, 30, 90]:
         df[f"SMA_{window}"] = SMAIndicator(df["close"], window=window).sma_indicator()
 
-    for column in df.columns:
-        if df[column].isnull().any():
-            logger.warning(f"Пропущенные значения в столбце {column}. Заполняем их.")
-            df[column] = df[column].interpolate(method="linear", limit_direction="both")
+    missing_before = df.isnull().sum()
+    logger.info(
+        f"Пропущенные значения перед обработкой:\n{missing_before[missing_before > 0]}"
+    )
+
+    df = df.infer_objects()
+
+    df = df.interpolate(method="linear", limit_direction="both")
+
+    missing_after = df.isnull().sum()
+    logger.info(
+        f"Пропущенные значения после обработки:\n{missing_after[missing_after > 0]}"
+    )
 
     logger.info(f"Время выполнения улучшения данных: {datetime.now() - start_time}")
     return df
