@@ -39,12 +39,17 @@ def fetch_data_from_csv(file_path="processed_data.csv"):
 
 
 def calculate_stochastic_oscillator(df, k_window=14, d_window=3):
-    df["lowest_low"] = df["low"].rolling(window=k_window).min()
-    df["highest_high"] = df["high"].rolling(window=k_window).max()
-    df["stoch_k"] = (
-        100 * (df["close"] - df["lowest_low"]) / (df["highest_high"] - df["lowest_low"])
+    df["low"] = pd.to_numeric(df["low"], errors="coerce")
+    df["high"] = pd.to_numeric(df["high"], errors="coerce")
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+
+    df = df.dropna(subset=["low", "high", "close"]).copy()
+    df.loc[:, "lowest_low"] = df["low"].rolling(window=k_window).min()
+    df.loc[:, "highest_high"] = df["high"].rolling(window=k_window).max()
+    df.loc[:, "stoch_k"] = (
+            100 * (df["close"] - df["lowest_low"]) / (df["highest_high"] - df["lowest_low"])
     )
-    df["stoch_d"] = df["stoch_k"].rolling(window=d_window).mean()
+    df.loc[:, "stoch_d"] = df["stoch_k"].rolling(window=d_window).mean()
 
     df = df.dropna(subset=["stoch_k", "stoch_d"])
 
@@ -60,49 +65,47 @@ def apply_technical_analysis(df):
     df_copy["high"] = pd.to_numeric(df_copy["high"], errors="coerce")
     df_copy["low"] = pd.to_numeric(df_copy["low"], errors="coerce")
 
-    df_copy[numeric_columns] = imputer.fit_transform(df_copy[numeric_columns])
+    logger.info("Проверка наличия столбцов для анализа: 'close', 'high', 'low'")
+    if not all(col in df_copy.columns for col in ["close", "high", "low"]):
+        logger.error("Отсутствуют необходимые столбцы для расчёта индикаторов.")
+        return df_copy
 
-    logger.info(
-        f"Пропущенные значения после обработки данных:\n{df_copy.isnull().sum()}"
-    )
+    try:
+        if "SMA_50" not in df_copy.columns:
+            df_copy["SMA_50"] = SMAIndicator(df_copy["close"], window=50).sma_indicator()
+        if "SMA_200" not in df_copy.columns:
+            df_copy["SMA_200"] = SMAIndicator(df_copy["close"], window=200).sma_indicator()
 
-    df_copy.loc[:, "SMA_50"] = SMAIndicator(df_copy["close"], window=50).sma_indicator()
-    df_copy.loc[:, "SMA_200"] = SMAIndicator(
-        df_copy["close"], window=200
-    ).sma_indicator()
-    df_copy.loc[:, "RSI"] = RSIIndicator(df_copy["close"], window=14).rsi()
-    df_copy.loc[:, "CCI"] = CCIIndicator(
-        df_copy["high"], df_copy["low"], df_copy["close"], window=14
-    ).cci()
-    atr = AverageTrueRange(df_copy["high"], df_copy["low"], df_copy["close"], window=14)
-    df_copy.loc[:, "atr"] = atr.average_true_range()
-    bb = BollingerBands(df_copy["close"], window=20, window_dev=2)
-    df_copy.loc[:, "bb_bbm"] = bb.bollinger_mavg()
-    df_copy.loc[:, "bb_bbh"] = bb.bollinger_hband()
-    df_copy.loc[:, "bb_bbl"] = bb.bollinger_lband()
+        if "RSI" not in df_copy.columns:
+            df_copy["RSI"] = RSIIndicator(df_copy["close"], window=14).rsi()
 
-    df_copy = calculate_stochastic_oscillator(df_copy)
+        df_copy["CCI"] = CCIIndicator(df_copy["high"], df_copy["low"], df_copy["close"], window=14).cci()
+        atr = AverageTrueRange(df_copy["high"], df_copy["low"], df_copy["close"], window=14)
+        df_copy["atr"] = atr.average_true_range()
+        bb = BollingerBands(df_copy["close"], window=20, window_dev=2)
+        df_copy["bb_bbm"] = bb.bollinger_mavg()
+        df_copy["bb_bbh"] = bb.bollinger_hband()
+        df_copy["bb_bbl"] = bb.bollinger_lband()
 
-    macd = MACD(df_copy["close"])
-    df_copy.loc[:, "macd_diff"] = macd.macd_diff()
+        df_copy = calculate_stochastic_oscillator(df_copy)
 
-    missing_data_after_analysis = df_copy.isnull().sum()
-    logger.info(
-        f"Пропущенные значения после анализа технических индикаторов:\n{missing_data_after_analysis[missing_data_after_analysis > 0]}"
-    )
+        macd = MACD(df_copy["close"])
+        df_copy["macd_diff"] = macd.macd_diff()
 
-    df_copy = df_copy.apply(
-        lambda col: (
-            col.interpolate(method="linear", limit_direction="forward")
-            if col.dtype in ["float64", "int64"]
-            else col
-        )
-    )
+    except Exception as e:
+        logger.error(f"Ошибка при расчете индикаторов: {str(e)}")
+        return df_copy
 
-    missing_data_after_interpolation = df_copy.isnull().sum()
-    logger.info(
-        f"Пропущенные значения после интерполяции:\n{missing_data_after_interpolation[missing_data_after_interpolation > 0]}"
-    )
+    numerics_columns = [
+        "close", "high", "low", "SMA_50", "SMA_200", "RSI", "CCI", "atr",
+        "bb_bbm", "bb_bbh", "bb_bbl", "macd_diff"
+    ]
+
+    numerics_columns = [col for col in numerics_columns if col in df_copy.columns]
+
+    df_copy[numerics_columns] = imputer.fit_transform(df_copy[numerics_columns])
+
+    logger.info(f"Пропущенные значения после обработки данных:\n{df_copy.isnull().sum()}")
 
     df_copy["predicted_signal"] = 0
     df_copy.loc[df_copy["SMA_50"] > df_copy["SMA_200"], "predicted_signal"] = 1
@@ -117,23 +120,15 @@ def enhance_data_processing(df):
 
     for lag in [1, 3, 7, 30, 90]:
         df[f"close_lag_{lag}"] = df["close"].shift(lag)
-        df[f"RSI_lag_{lag}"] = df["RSI"].shift(lag)
+        df[f"RSI_lag_{lag}"] = df["RSI"].shift(lag) if "RSI" in df.columns else np.nan
 
     for window in [10, 30, 90]:
         df[f"SMA_{window}"] = SMAIndicator(df["close"], window=window).sma_indicator()
 
-    df["close"] = df["close"].interpolate(method="linear", limit_direction="both")
-    df["RSI"] = df["RSI"].interpolate(method="linear", limit_direction="both")
-
-    missing_data_after_interpolation = df.isnull().sum()
-    logger.info(
-        f"Пропущенные значения после интерполяции:\n{missing_data_after_interpolation[missing_data_after_interpolation > 0]}"
-    )
-
     for column in df.columns:
         if df[column].isnull().any():
             logger.warning(f"Пропущенные значения в столбце {column}. Заполняем их.")
-            df[column] = df[column].ffill().bfill()
+            df[column] = df[column].interpolate(method="linear", limit_direction="both")
 
     logger.info(f"Время выполнения улучшения данных: {datetime.now() - start_time}")
     return df
@@ -229,6 +224,11 @@ def process_and_evaluate_data():
             logger.info(f"Обработка данных для {crypto}")
 
             df_crypto = df[df["cryptocurrency"] == crypto]
+
+            required_columns = ["close", "high", "low"]
+            if not all(col in df_crypto.columns for col in required_columns):
+                logger.error(f"Отсутствуют обязательные столбцы для {crypto}: {required_columns}")
+                continue
 
             df_crypto = apply_technical_analysis(df_crypto)
             df_crypto = enhance_data_processing(df_crypto)
