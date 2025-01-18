@@ -47,7 +47,7 @@ def calculate_stochastic_oscillator(df, k_window=14, d_window=3):
     df.loc[:, "lowest_low"] = df["low"].rolling(window=k_window).min()
     df.loc[:, "highest_high"] = df["high"].rolling(window=k_window).max()
     df.loc[:, "stoch_k"] = (
-            100 * (df["close"] - df["lowest_low"]) / (df["highest_high"] - df["lowest_low"])
+        100 * (df["close"] - df["lowest_low"]) / (df["highest_high"] - df["lowest_low"])
     )
     df.loc[:, "stoch_d"] = df["stoch_k"].rolling(window=d_window).mean()
 
@@ -72,15 +72,23 @@ def apply_technical_analysis(df):
 
     try:
         if "SMA_50" not in df_copy.columns:
-            df_copy["SMA_50"] = SMAIndicator(df_copy["close"], window=50).sma_indicator()
+            df_copy["SMA_50"] = SMAIndicator(
+                df_copy["close"], window=50
+            ).sma_indicator()
         if "SMA_200" not in df_copy.columns:
-            df_copy["SMA_200"] = SMAIndicator(df_copy["close"], window=200).sma_indicator()
+            df_copy["SMA_200"] = SMAIndicator(
+                df_copy["close"], window=200
+            ).sma_indicator()
 
         if "RSI" not in df_copy.columns:
             df_copy["RSI"] = RSIIndicator(df_copy["close"], window=14).rsi()
 
-        df_copy["CCI"] = CCIIndicator(df_copy["high"], df_copy["low"], df_copy["close"], window=14).cci()
-        atr = AverageTrueRange(df_copy["high"], df_copy["low"], df_copy["close"], window=14)
+        df_copy["CCI"] = CCIIndicator(
+            df_copy["high"], df_copy["low"], df_copy["close"], window=14
+        ).cci()
+        atr = AverageTrueRange(
+            df_copy["high"], df_copy["low"], df_copy["close"], window=14
+        )
         df_copy["atr"] = atr.average_true_range()
         bb = BollingerBands(df_copy["close"], window=20, window_dev=2)
         df_copy["bb_bbm"] = bb.bollinger_mavg()
@@ -97,15 +105,27 @@ def apply_technical_analysis(df):
         return df_copy
 
     numerics_columns = [
-        "close", "high", "low", "SMA_50", "SMA_200", "RSI", "CCI", "atr",
-        "bb_bbm", "bb_bbh", "bb_bbl", "macd_diff"
+        "close",
+        "high",
+        "low",
+        "SMA_50",
+        "SMA_200",
+        "RSI",
+        "CCI",
+        "atr",
+        "bb_bbm",
+        "bb_bbh",
+        "bb_bbl",
+        "macd_diff",
     ]
 
     numerics_columns = [col for col in numerics_columns if col in df_copy.columns]
 
     df_copy[numerics_columns] = imputer.fit_transform(df_copy[numerics_columns])
 
-    logger.info(f"Пропущенные значения после обработки данных:\n{df_copy.isnull().sum()}")
+    logger.info(
+        f"Пропущенные значения после обработки данных:\n{df_copy.isnull().sum()}"
+    )
 
     df_copy["predicted_signal"] = 0
     df_copy.loc[df_copy["SMA_50"] > df_copy["SMA_200"], "predicted_signal"] = 1
@@ -131,7 +151,6 @@ def enhance_data_processing(df):
     )
 
     df = df.infer_objects()
-
     df = df.interpolate(method="linear", limit_direction="both")
 
     missing_after = df.isnull().sum()
@@ -158,12 +177,12 @@ def split_data_by_period(df, periods=[90, 180, 365]):
 
 def generate_target_variable(df, period=24):
     df["target"] = 0
+    df["future_close"] = df["close"].shift(-period)
 
-    df.loc[df["close"].shift(-period) > df["close"], "target"] = 1
+    df.loc[df["future_close"] > df["close"], "target"] = 1
+    df.loc[df["future_close"] < df["close"], "target"] = -1
 
-    df.loc[df["close"].shift(-period) < df["close"], "target"] = -1
-
-    df["target"] = df["target"].astype(int)
+    df.drop(columns=["future_close"], inplace=True)
     return df
 
 
@@ -236,7 +255,9 @@ def process_and_evaluate_data():
 
             required_columns = ["close", "high", "low"]
             if not all(col in df_crypto.columns for col in required_columns):
-                logger.error(f"Отсутствуют обязательные столбцы для {crypto}: {required_columns}")
+                logger.error(
+                    f"Отсутствуют обязательные столбцы для {crypto}: {required_columns}"
+                )
                 continue
 
             df_crypto = apply_technical_analysis(df_crypto)

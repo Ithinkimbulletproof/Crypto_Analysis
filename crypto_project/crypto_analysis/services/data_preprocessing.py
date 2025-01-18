@@ -23,11 +23,15 @@ def fetch_data_from_database(crypto: str) -> list:
                 "date", "close_price", "high_price", "low_price", "cryptocurrency"
             )
         )
-        logger.info(f"Получено {len(data_all)} записей для {crypto}. Пример записи: {data_all[:1]}")
+        logger.info(
+            f"Получено {len(data_all)} записей для {crypto}. Пример записи: {data_all[:1]}"
+        )
         if not data_all:
             logger.warning(f"Нет данных для {crypto}. Пропускаем.")
             return []
-        df = pd.DataFrame(data_all, columns=["date", "close", "high", "low", "cryptocurrency"])
+        df = pd.DataFrame(
+            data_all, columns=["date", "close", "high", "low", "cryptocurrency"]
+        )
         logger.info(f"DataFrame создан успешно. Пример первой записи: {df.head(1)}")
         logger.info(f"Количество строк в DataFrame: {len(df)}")
         return list(df.itertuples(index=False, name=None))
@@ -40,7 +44,10 @@ def ensure_index(df: pd.DataFrame, index_col: str):
     if index_col not in df.columns:
         df.reset_index(inplace=True)
 
-def preprocess_data(data_all: list, volatility_window: int = 30, k_window: int = 14) -> pd.DataFrame:
+
+def preprocess_data(
+    data_all: list, volatility_window: int = 30, k_window: int = 14
+) -> pd.DataFrame:
     if not data_all:
         logger.warning("Список данных пуст. Возвращается пустой DataFrame.")
         return pd.DataFrame()
@@ -51,24 +58,28 @@ def preprocess_data(data_all: list, volatility_window: int = 30, k_window: int =
         )
         logger.info(f"DataFrame создан успешно. Пример первой записи: {df.head(1)}")
 
-        df['date'] = pd.to_datetime(df['date'])
-        df.set_index('date', inplace=True)
+        df["date"] = pd.to_datetime(df["date"])
+        df.set_index("date", inplace=True)
 
-        for col in ['close', 'high', 'low']:
-            df[col] = df[col].interpolate(method='time').bfill().ffill()
-            logger.info(f"{col.capitalize()} цена обработана. Пример первой записи: {df.head(1)}")
+        for col in ["close", "high", "low"]:
+            df[col] = df[col].interpolate(method="time").bfill().ffill()
+            logger.info(
+                f"{col.capitalize()} цена обработана. Пример первой записи: {df.head(1)}"
+            )
 
-        df['price_change_24h'] = df['close'].pct_change(periods=24)
-        df['price_change_7d'] = df['close'].pct_change(periods=7 * 24)
+        df["price_change_24h"] = df["close"].pct_change(periods=24)
+        df["price_change_7d"] = df["close"].pct_change(periods=7 * 24)
 
         rolling_windows = [30, 90, 180]
         for window in rolling_windows:
-            df[f'SMA_{window}'] = df['close'].rolling(window=window).mean()
-            df[f'volatility_{window}'] = df['close'].rolling(window=window).std()
+            df[f"SMA_{window}"] = df["close"].rolling(window=window).mean()
+            df[f"volatility_{window}"] = df["close"].rolling(window=window).std()
             logger.info(f"SMA и волатильность для {window} дней рассчитаны.")
 
         df.dropna(inplace=True)
-        logger.info(f"Пустые строки удалены. Пример первой записи после очистки: {df.head(1)}")
+        logger.info(
+            f"Пустые строки удалены. Пример первой записи после очистки: {df.head(1)}"
+        )
 
         return df.reset_index()
     except Exception as e:
@@ -79,12 +90,12 @@ def preprocess_data(data_all: list, volatility_window: int = 30, k_window: int =
 def split_data_by_period(df: pd.DataFrame, periods: list) -> dict:
     logger.info(f"Разделение данных на периоды: {periods}")
     try:
-        ensure_index(df, 'date')
+        ensure_index(df, "date")
         now = datetime.now(timezone.utc)
         split_data = {}
         for period in periods:
             date_limit = now - timedelta(days=period)
-            filtered_df = df[df['date'] >= date_limit].copy()
+            filtered_df = df[df["date"] >= date_limit].copy()
             split_data[period] = filtered_df
             logger.info(f"Данные для {period} дней: {len(filtered_df)} записей.")
         return split_data
@@ -94,15 +105,15 @@ def split_data_by_period(df: pd.DataFrame, periods: list) -> dict:
 
 
 def save_to_csv(
-        df: pd.DataFrame,
-        cryptocurrency: str,
-        period: str,
-        file_path: str = "processed_data.csv",
+    df: pd.DataFrame,
+    cryptocurrency: str,
+    period: str,
+    file_path: str = "processed_data.csv",
 ):
     try:
         logger.info(f"Сохранение данных для {cryptocurrency} ({period}) в {file_path}.")
 
-        ensure_index(df, 'date')
+        ensure_index(df, "date")
 
         df = df.copy()
         df["cryptocurrency"] = cryptocurrency
@@ -110,13 +121,19 @@ def save_to_csv(
         mode = "a" if os.path.exists(file_path) else "w"
         header = not os.path.exists(file_path)
         df.to_csv(file_path, mode=mode, header=header, index=False)
-        logger.info(f"Данные успешно сохранены для {cryptocurrency} ({period}) в {file_path}")
+        logger.info(
+            f"Данные успешно сохранены для {cryptocurrency} ({period}) в {file_path}"
+        )
     except Exception as e:
-        logger.error(f"Ошибка при сохранении данных для {cryptocurrency}: {e}", exc_info=True)
+        logger.error(
+            f"Ошибка при сохранении данных для {cryptocurrency}: {e}", exc_info=True
+        )
         raise
 
 
-def process_and_export_data(volatility_window: int = 30, periods: list = [90, 180, 365]):
+def process_and_export_data(
+    volatility_window: int = 30, periods: list = [90, 180, 365]
+):
     logger.info("Запуск процесса обработки и экспорта данных.")
     cryptocurrencies = os.getenv("CRYPTOPAIRS", "").split(",")
     if not cryptocurrencies:
@@ -160,6 +177,7 @@ def process_and_export_data(volatility_window: int = 30, periods: list = [90, 18
 def log_overall_stats(processed_cryptos_count: int):
     logger.info("Обработка завершена.")
     logger.info(f"Обработано криптовалют: {processed_cryptos_count}")
+
 
 if __name__ == "__main__":
     process_and_export_data(volatility_window=30)
