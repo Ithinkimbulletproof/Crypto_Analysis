@@ -2,6 +2,7 @@ import os
 import logging
 import numpy as np
 import pandas as pd
+from crypto_analysis.models import PreprocessedData, TechAnalysed
 from ta.trend import MACD
 from dotenv import load_dotenv
 from ta.momentum import RSIIndicator
@@ -21,19 +22,21 @@ numeric_columns = ["close", "high", "low", "RSI", "SMA_50", "SMA_200"]
 imputer = IterativeImputer(max_iter=10, random_state=42)
 
 
-def fetch_data_from_csv(file_path="processed_data.csv"):
-    if not os.path.exists(file_path):
-        logger.warning(f"Файл {file_path} не найден.")
+def fetch_data_from_db(cryptocurrency, period):
+    data = PreprocessedData.objects.filter(cryptocurrency=cryptocurrency, period=period).values()
+
+    if not data:
+        logger.warning(f"Данные для {cryptocurrency} в периоде {period} не найдены.")
         return None
-    df = pd.read_csv(file_path, low_memory=False)
+
+    df = pd.DataFrame(data)
+
     if df.empty:
-        logger.warning(f"Файл {file_path} пуст.")
+        logger.warning(f"Полученные данные для {cryptocurrency} пусты.")
         return None
 
     missing_data = df.isnull().sum()
-    logger.info(
-        f"Пропущенные значения в исходных данных:\n{missing_data[missing_data > 0]}"
-    )
+    logger.info(f"Пропущенные значения в исходных данных:\n{missing_data[missing_data > 0]}")
 
     return df
 
@@ -186,22 +189,28 @@ def generate_target_variable(df, period=24):
     return df
 
 
-def save_to_csv(
-    df, cryptocurrency, period, file_path="processed_with_technical_analysis.csv"
-):
-    missing_data_before_save = df.isnull().sum()
-    logger.info(
-        f"Пропущенные значения перед сохранением:\n{missing_data_before_save[missing_data_before_save > 0]}"
-    )
+def save_to_db(df, cryptocurrency, period):
+    for _, row in df.iterrows():
+        tech_analysed = TechAnalysed(
+            date=row["date"],
+            cryptocurrency=cryptocurrency,
+            period=period,
+            close_price=row["close"],
+            high_price=row["high"],
+            low_price=row["low"],
+            price_change_24h=row.get("price_change_24h", None),
+            SMA_30=row.get("SMA_30", None),
+            volatility_30=row.get("volatility_30", None),
+            SMA_90=row.get("SMA_90", None),
+            volatility_90=row.get("volatility_90", None),
+            SMA_180=row.get("SMA_180", None),
+            volatility_180=row.get("volatility_180", None),
+            predicted_signal=row.get("predicted_signal", None),
+            target=row.get("target", None)
+        )
+        tech_analysed.save()
 
-    df["cryptocurrency"] = cryptocurrency
-    df["period"] = period
-    if os.path.exists(file_path):
-        df.to_csv(file_path, mode="a", header=False, index=False)
-    else:
-        df.to_csv(file_path, mode="w", header=True, index=False)
-
-    logger.info(f"Данные сохранены в {file_path}")
+    logger.info(f"Данные для {cryptocurrency} в периоде {period} успешно сохранены.")
 
 
 def evaluate_model_performance(
@@ -241,7 +250,7 @@ def evaluate_model_performance(
 
 def process_and_evaluate_data():
     input_file_path = "processed_data.csv"
-    df = fetch_data_from_csv(input_file_path)
+    df = fetch_data_from_db(input_file_path)
     if df is None:
         return
 
@@ -265,7 +274,7 @@ def process_and_evaluate_data():
             df_crypto = generate_target_variable(df_crypto, period=24)
 
             evaluate_model_performance(df_crypto)
-            save_to_csv(df_crypto, crypto, "evaluation")
+            save_to_db(df_crypto, crypto, "evaluation")
 
         except Exception as e:
             logger.error(f"Ошибка обработки {crypto}: {str(e)}")

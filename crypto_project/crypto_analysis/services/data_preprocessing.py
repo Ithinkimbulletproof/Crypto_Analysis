@@ -2,7 +2,7 @@ import os
 import logging
 import pandas as pd
 from dotenv import load_dotenv
-from crypto_analysis.models import MarketData
+from crypto_analysis.models import MarketData, PreprocessedData
 from datetime import datetime, timedelta, timezone
 
 logging.basicConfig(level=logging.INFO)
@@ -104,30 +104,38 @@ def split_data_by_period(df: pd.DataFrame, periods: list) -> dict:
         return {}
 
 
-def save_to_csv(
-    df: pd.DataFrame,
-    cryptocurrency: str,
-    period: str,
-    file_path: str = "processed_data.csv",
-):
+def save_to_database(df: pd.DataFrame, cryptocurrency: str, period: str):
     try:
-        logger.info(f"Сохранение данных для {cryptocurrency} ({period}) в {file_path}.")
-
-        ensure_index(df, "date")
+        logger.info(f"Сохранение данных для {cryptocurrency} ({period}) в базу данных.")
 
         df = df.copy()
         df["cryptocurrency"] = cryptocurrency
         df["period"] = period
-        mode = "a" if os.path.exists(file_path) else "w"
-        header = not os.path.exists(file_path)
-        df.to_csv(file_path, mode=mode, header=header, index=False)
-        logger.info(
-            f"Данные успешно сохранены для {cryptocurrency} ({period}) в {file_path}"
-        )
+
+        preprocessed_data_list = [
+            PreprocessedData(
+                date=row["date"],
+                close_price=row["close"],
+                high_price=row["high"],
+                low_price=row["low"],
+                cryptocurrency=row["cryptocurrency"],
+                period=row["period"],
+                price_change_24h=row.get("price_change_24h", None),
+                SMA_30=row.get("SMA_30", None),
+                volatility_30=row.get("volatility_30", None),
+                SMA_90=row.get("SMA_90", None),
+                volatility_90=row.get("volatility_90", None),
+                SMA_180=row.get("SMA_180", None),
+                volatility_180=row.get("volatility_180", None)
+            )
+            for _, row in df.iterrows()
+        ]
+
+        PreprocessedData.objects.bulk_create(preprocessed_data_list)
+
+        logger.info(f"Данные успешно сохранены для {cryptocurrency} ({period}) в базу данных.")
     except Exception as e:
-        logger.error(
-            f"Ошибка при сохранении данных для {cryptocurrency}: {e}", exc_info=True
-        )
+        logger.error(f"Ошибка при сохранении данных для {cryptocurrency}: {e}", exc_info=True)
         raise
 
 
@@ -158,7 +166,7 @@ def process_and_export_data(
 
             split_data = split_data_by_period(df, periods)
             for period, data in split_data.items():
-                save_to_csv(data, crypto, f"{period}_days")
+                save_to_database(data, crypto, f"{period}_days")
 
             all_cryptos_data.append(
                 df[["date", "close", "high", "low", "cryptocurrency"]]
@@ -169,7 +177,7 @@ def process_and_export_data(
 
     if all_cryptos_data:
         market_df = pd.concat(all_cryptos_data, ignore_index=True)
-        save_to_csv(market_df, "market", "all_periods")
+        save_to_database(market_df, "market", "all_periods")
 
     log_overall_stats(processed_cryptos_count)
 

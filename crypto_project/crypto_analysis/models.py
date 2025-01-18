@@ -46,3 +46,46 @@ class MarketData(models.Model):
 
     def __str__(self):
         return f"{self.cryptocurrency} | {self.date} | Close: {self.close_price:.2f}"
+
+
+class PreprocessedData(models.Model):
+    date = models.DateTimeField()
+    close_price = models.FloatField()
+    high_price = models.FloatField()
+    low_price = models.FloatField()
+    cryptocurrency = models.CharField(max_length=100)
+    period = models.CharField(max_length=50)
+
+    price_change_24h = models.FloatField(null=True, blank=True)
+    SMA_30 = models.FloatField(null=True, blank=True)
+    volatility_30 = models.FloatField(null=True, blank=True)
+    SMA_90 = models.FloatField(null=True, blank=True)
+    volatility_90 = models.FloatField(null=True, blank=True)
+    SMA_180 = models.FloatField(null=True, blank=True)
+    volatility_180 = models.FloatField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.cryptocurrency} - {self.date}"
+
+class TechAnalysed(models.Model):
+    date = models.DateTimeField()
+    cryptocurrency = models.CharField(max_length=100)
+    period = models.CharField(max_length=50)
+    close_price = models.FloatField()
+    high_price = models.FloatField()
+    low_price = models.FloatField()
+
+    price_change_24h = models.FloatField(null=True, blank=True)
+    SMA_30 = models.FloatField(null=True, blank=True)
+    volatility_30 = models.FloatField(null=True, blank=True)
+    SMA_90 = models.FloatField(null=True, blank=True)
+    volatility_90 = models.FloatField(null=True, blank=True)
+    SMA_180 = models.FloatField(null=True, blank=True)
+    volatility_180 = models.FloatField(null=True, blank=True)
+
+    predicted_signal = models.IntegerField(null=True, blank=True)
+    target = models.IntegerField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.cryptocurrency} - {self.date}"
+
