@@ -6,7 +6,7 @@ import xgboost as xgb
 import lightgbm as lgb
 from dotenv import load_dotenv
 from statsmodels.tsa.arima.model import ARIMA
-from crypto_analysis.models import TechAnalysed
+from crypto_analysis.models import TechAnalysed, ShortTermCryptoPrediction, LongTermCryptoPrediction
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -200,33 +200,54 @@ def save_model(model, model_name="crypto_forecast_model.pkl"):
     logger.info(f"Модель сохранена в {file_path}")
 
 
-def generate_predictions_short_term(model, X_test, y_test):
+def generate_predictions_short_term(model, X_test, y_test, model_type="XGBoost"):
     predictions = model.predict(X_test)
-    data = {
+    predictions_df = pd.DataFrame({
         "cryptocurrency": X_test.index.get_level_values("cryptocurrency"),
         "date": X_test.index.get_level_values("date"),
         "predicted_change": predictions - y_test,
         "predicted_close": predictions,
-    }
-    return pd.DataFrame(data)
+    })
+
+    for _, row in predictions_df.iterrows():
+        ShortTermCryptoPrediction.objects.create(
+            cryptocurrency_pair=row["cryptocurrency"],
+            prediction_date=row["date"],
+            predicted_price_change=row["predicted_change"],
+            predicted_close=row["predicted_close"],
+            model_type=model_type,
+            confidence_level=1.0
+        )
+    logger.info(f"Предсказания для {model_type} сохранены в базу данных.")
+    return predictions_df
 
 
 def generate_predictions_long_term(model, df, target_col="close"):
     predictions = model.predict(df[target_col])
     dates = pd.date_range(start=df.index[-1], periods=len(predictions), freq="D")
 
-    data = {
+    long_term_predictions_df = pd.DataFrame({
         "cryptocurrency": df["cryptocurrency"].iloc[-1],
         "date": dates,
         "predicted_close": predictions,
         "predicted_change": predictions - df[target_col].iloc[-1],
-    }
-    return pd.DataFrame(data)
+    })
+
+    for _, row in long_term_predictions_df.iterrows():
+        LongTermCryptoPrediction.objects.create(
+            cryptocurrency_pair=row["cryptocurrency"],
+            prediction_date=row["date"],
+            predicted_price_change=row["predicted_change"],
+            predicted_close=row["predicted_close"],
+            model_type="ARIMA",
+            confidence_level=1.0
+        )
+    logger.info(f"Долгосрочные предсказания сохранены в базу данных.")
+    return long_term_predictions_df
 
 
 def process_machine_learning():
-    file_path = "processed_with_technical_analysis.csv"
-    df = load_processed_data(file_path)
+    df = load_processed_data()
     if df is None:
         return
 
@@ -240,12 +261,9 @@ def process_machine_learning():
         mse, r2, accuracy = evaluate_model(model, X_test, y_test, model_type)
         save_model(model, model_name=f"{model_type}_short_term_model.pkl")
 
-        predictions = generate_predictions_short_term(model, X_test, y_test)
+        predictions = generate_predictions_short_term(model, X_test, y_test, model_type)
         predictions["model"] = model_type
         short_term_predictions.append(predictions)
-
-    short_term_df = pd.concat(short_term_predictions)
-    save_predictions(short_term_df, file_name="short_term_predictions.csv")
 
     logger.info("Обучение моделей долгосрочного прогноза")
     lstm_model = train_lstm(X_train.values, y_train, X_test.values, y_test)
@@ -255,7 +273,6 @@ def process_machine_learning():
     save_model(arima_model, model_name="ARIMA_long_term_model.pkl")
 
     long_term_predictions = generate_predictions_long_term(arima_model, df)
-    save_predictions(long_term_predictions, file_name="long_term_predictions.csv")
 
 
 if __name__ == "__main__":
