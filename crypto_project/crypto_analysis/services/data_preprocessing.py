@@ -45,7 +45,9 @@ def ensure_index(df: pd.DataFrame, index_col: str):
         df.reset_index(inplace=True)
 
 
-def preprocess_data(data_all: list, volatility_window: int = 30, k_window: int = 14) -> pd.DataFrame:
+def preprocess_data(
+    data_all: list, volatility_window: int = 30, k_window: int = 14
+) -> pd.DataFrame:
     if not data_all:
         logger.warning("Список данных пуст. Возвращается пустой DataFrame.")
         return pd.DataFrame(columns=["date", "close", "high", "low", "cryptocurrency"])
@@ -57,7 +59,9 @@ def preprocess_data(data_all: list, volatility_window: int = 30, k_window: int =
         logger.info(f"DataFrame создан успешно. Пример первой записи: {df.head(1)}")
 
         if len(df) < max(volatility_window, k_window):
-            logger.warning(f"Недостаточно данных для расчётов. Возвращается DataFrame с {len(df)} строками.")
+            logger.warning(
+                f"Недостаточно данных для расчётов. Возвращается DataFrame с {len(df)} строками."
+            )
             return df
 
         df["date"] = pd.to_datetime(df["date"])
@@ -65,7 +69,9 @@ def preprocess_data(data_all: list, volatility_window: int = 30, k_window: int =
 
         for col in ["close", "high", "low"]:
             df[col] = df[col].interpolate(method="time").bfill().ffill()
-            logger.info(f"{col.capitalize()} цена обработана. Пример первой записи: {df.head(1)}")
+            logger.info(
+                f"{col.capitalize()} цена обработана. Пример первой записи: {df.head(1)}"
+            )
 
         if len(df) >= 24:
             df["price_change_24h"] = df["close"].pct_change(periods=24)
@@ -81,7 +87,9 @@ def preprocess_data(data_all: list, volatility_window: int = 30, k_window: int =
             logger.info(f"SMA и волатильность для {window} дней рассчитаны.")
 
         df.dropna(inplace=True)
-        logger.info(f"Пустые строки удалены. Пример первой записи после очистки: {df.head(1)}")
+        logger.info(
+            f"Пустые строки удалены. Пример первой записи после очистки: {df.head(1)}"
+        )
 
         return df.reset_index()
     except Exception as e:

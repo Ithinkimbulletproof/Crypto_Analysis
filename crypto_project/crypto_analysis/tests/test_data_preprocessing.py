@@ -33,21 +33,20 @@ def test_preprocess_data(create_test_data):
     crypto = "BTC/USDT"
     data = fetch_data_from_database(crypto)
 
-    if len(data) < 2:
+    while len(data) < 24:
         data.append(
-            (datetime(2021, 6, 2, tzinfo=timezone.utc), 36000.00, 37000.00, 35000.00, "BTC/USDT")
-        )
-
-    if len(data) < 24:
-        for i in range(len(data), 24):
-            data.append(
-                (datetime(2021, 6, 3, tzinfo=timezone.utc) + timedelta(days=i), 36000.00, 37000.00, 35000.00, "BTC/USDT")
+            (
+                datetime(2021, 6, 3, tzinfo=timezone.utc) + timedelta(days=len(data)),
+                36000.00,
+                37000.00,
+                35000.00,
+                "BTC/USDT",
             )
+        )
 
     df = preprocess_data(data)
 
     assert not df.empty or len(df) == 1
-
     if not df.empty:
         if len(df) > 1:
             assert "price_change_24h" in df.columns
@@ -59,9 +58,18 @@ def test_preprocess_data(create_test_data):
 @pytest.mark.django_db
 @patch("crypto_analysis.services.data_preprocessing.save_to_database")
 def test_process_and_export_data(mock_save_to_database, create_test_data):
-    with patch("crypto_analysis.services.data_preprocessing.fetch_data_from_database", return_value=[
-        (datetime(2021, 6, 1, tzinfo=timezone.utc), 35000.00, 36000.00, 34000.00, "BTC/USDT")
-    ]):
+    with patch(
+        "crypto_analysis.services.data_preprocessing.fetch_data_from_database",
+        return_value=[
+            (
+                datetime(2021, 6, 1, tzinfo=timezone.utc),
+                35000.00,
+                36000.00,
+                34000.00,
+                "BTC/USDT",
+            )
+        ],
+    ):
         process_and_export_data(volatility_window=30)
 
     assert mock_save_to_database.called

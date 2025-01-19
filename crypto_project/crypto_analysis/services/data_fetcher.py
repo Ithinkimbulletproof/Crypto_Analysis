@@ -93,9 +93,7 @@ def fetch_and_store_data(exchange, symbol, since, timeframe):
             for record in data:
                 timestamp = record[0]
                 aware_date = datetime.fromtimestamp(timestamp / 1000, timezone.utc)
-                logger.debug(
-                    f"Timestamp: {timestamp}, Aware Date: {aware_date}"
-                )
+                logger.debug(f"Timestamp: {timestamp}, Aware Date: {aware_date}")
                 all_data.append(
                     (
                         symbol,

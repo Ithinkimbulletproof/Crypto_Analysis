@@ -2,7 +2,12 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 from crypto_analysis.models import MarketData
-from crypto_analysis.services.data_fetcher import get_last_date, fetch_data, process_exchange, store_data_bulk
+from crypto_analysis.services.data_fetcher import (
+    get_last_date,
+    fetch_data,
+    process_exchange,
+    store_data_bulk,
+)
 
 
 @pytest.fixture
@@ -46,12 +51,16 @@ def test_fetch_data(create_test_data):
     exchanges = [MagicMock(), MagicMock()]
     exchanges[0].id = "binance"
     exchanges[1].id = "kraken"
-    exchanges[0].fetch_ohlcv = MagicMock(return_value=[
-        [1622558400000, 35000, 36000, 34000, 35500, 1500],
-    ])
-    exchanges[1].fetch_ohlcv = MagicMock(return_value=[
-        [1622558400000, 2500, 2600, 2400, 2550, 5000],
-    ])
+    exchanges[0].fetch_ohlcv = MagicMock(
+        return_value=[
+            [1622558400000, 35000, 36000, 34000, 35500, 1500],
+        ]
+    )
+    exchanges[1].fetch_ohlcv = MagicMock(
+        return_value=[
+            [1622558400000, 2500, 2600, 2400, 2550, 5000],
+        ]
+    )
     symbols = ["BTC/USDT", "ETH/USDT"]
 
     fetch_data()
@@ -69,9 +78,11 @@ def test_process_exchange(create_test_data):
     timeframe = "1h"
 
     exchange.load_markets = MagicMock(return_value=None)
-    exchange.fetch_ohlcv = MagicMock(return_value=[
-        [1622558400000, 35000, 36000, 34000, 35500, 1500],
-    ])
+    exchange.fetch_ohlcv = MagicMock(
+        return_value=[
+            [1622558400000, 35000, 36000, 34000, 35500, 1500],
+        ]
+    )
 
     process_exchange(exchange, symbols, default_start_date, timeframe)
 
