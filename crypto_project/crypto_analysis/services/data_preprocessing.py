@@ -140,7 +140,7 @@ def save_to_database(df: pd.DataFrame, cryptocurrency: str, period: str):
 
 
 def process_and_export_data(
-    volatility_window: int = 30, periods: list = [90, 180, 365]
+    volatility_window: int = 30, periods: list = [30, 90, 180, 365]
 ):
     logger.info("Запуск процесса обработки и экспорта данных.")
     cryptocurrencies = os.getenv("CRYPTOPAIRS", "").split(",")

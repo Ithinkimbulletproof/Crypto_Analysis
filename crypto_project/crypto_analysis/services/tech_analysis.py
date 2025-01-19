@@ -249,35 +249,33 @@ def evaluate_model_performance(
 
 
 def process_and_evaluate_data():
-    input_file_path = "processed_data.csv"
-    df = fetch_data_from_db(input_file_path)
-    if df is None:
-        return
-
-    cryptocurrencies = df["cryptocurrency"].unique()
+    cryptocurrencies = os.getenv("CRYPTOPAIRS").split(",")
+    periods = [30, 90, 180, 365]
 
     for crypto in cryptocurrencies:
-        try:
-            logger.info(f"Обработка данных для {crypto}")
+        for period in periods:
+            try:
+                logger.info(f"Обработка данных для {crypto} в периоде {period}")
 
-            df_crypto = df[df["cryptocurrency"] == crypto]
+                df_crypto = fetch_data_from_db(cryptocurrency=crypto, period=period)
 
-            required_columns = ["close", "high", "low"]
-            if not all(col in df_crypto.columns for col in required_columns):
-                logger.error(
-                    f"Отсутствуют обязательные столбцы для {crypto}: {required_columns}"
-                )
-                continue
+                if df_crypto is None:
+                    continue  # Пропустить, если данных нет
 
-            df_crypto = apply_technical_analysis(df_crypto)
-            df_crypto = enhance_data_processing(df_crypto)
-            df_crypto = generate_target_variable(df_crypto, period=24)
+                required_columns = ["close", "high", "low"]
+                if not all(col in df_crypto.columns for col in required_columns):
+                    logger.error(f"Отсутствуют обязательные столбцы для {crypto} в периоде {period}: {required_columns}")
+                    continue
 
-            evaluate_model_performance(df_crypto)
-            save_to_db(df_crypto, crypto, "evaluation")
+                df_crypto = apply_technical_analysis(df_crypto)
+                df_crypto = enhance_data_processing(df_crypto)
+                df_crypto = generate_target_variable(df_crypto, period=24)
 
-        except Exception as e:
-            logger.error(f"Ошибка обработки {crypto}: {str(e)}")
+                evaluate_model_performance(df_crypto)
+                save_to_db(df_crypto, crypto, period)
+
+            except Exception as e:
+                logger.error(f"Ошибка обработки {crypto} в периоде {period}: {str(e)}")
 
     log_overall_stats()
 
