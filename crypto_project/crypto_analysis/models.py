@@ -67,6 +67,7 @@ class PreprocessedData(models.Model):
     def __str__(self):
         return f"{self.cryptocurrency} - {self.date}"
 
+
 class TechAnalysed(models.Model):
     date = models.DateTimeField()
     cryptocurrency = models.CharField(max_length=100)
@@ -88,4 +89,3 @@ class TechAnalysed(models.Model):
 
     def __str__(self):
         return f"{self.cryptocurrency} - {self.date}"
-

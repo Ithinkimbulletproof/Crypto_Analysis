@@ -6,7 +6,11 @@ import xgboost as xgb
 import lightgbm as lgb
 from dotenv import load_dotenv
 from statsmodels.tsa.arima.model import ARIMA
-from crypto_analysis.models import TechAnalysed, ShortTermCryptoPrediction, LongTermCryptoPrediction
+from crypto_analysis.models import (
+    TechAnalysed,
+    ShortTermCryptoPrediction,
+    LongTermCryptoPrediction,
+)
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -36,9 +40,25 @@ def load_processed_data(cryptocurrency=None, period=None):
     if period:
         query = query.filter(period=period)
 
-    data = list(query.values('date', 'cryptocurrency', 'period', 'close_price', 'high_price', 'low_price',
-                             'price_change_24h', 'SMA_30', 'volatility_30', 'SMA_90', 'volatility_90',
-                             'SMA_180', 'volatility_180', 'predicted_signal', 'target'))
+    data = list(
+        query.values(
+            "date",
+            "cryptocurrency",
+            "period",
+            "close_price",
+            "high_price",
+            "low_price",
+            "price_change_24h",
+            "SMA_30",
+            "volatility_30",
+            "SMA_90",
+            "volatility_90",
+            "SMA_180",
+            "volatility_180",
+            "predicted_signal",
+            "target",
+        )
+    )
 
     if not data:
         logger.warning(f"Данные для {cryptocurrency} в периоде {period} не найдены.")
@@ -202,12 +222,14 @@ def save_model(model, model_name="crypto_forecast_model.pkl"):
 
 def generate_predictions_short_term(model, X_test, y_test, model_type="XGBoost"):
     predictions = model.predict(X_test)
-    predictions_df = pd.DataFrame({
-        "cryptocurrency": X_test.index.get_level_values("cryptocurrency"),
-        "date": X_test.index.get_level_values("date"),
-        "predicted_change": predictions - y_test,
-        "predicted_close": predictions,
-    })
+    predictions_df = pd.DataFrame(
+        {
+            "cryptocurrency": X_test.index.get_level_values("cryptocurrency"),
+            "date": X_test.index.get_level_values("date"),
+            "predicted_change": predictions - y_test,
+            "predicted_close": predictions,
+        }
+    )
 
     for _, row in predictions_df.iterrows():
         ShortTermCryptoPrediction.objects.create(
@@ -216,7 +238,7 @@ def generate_predictions_short_term(model, X_test, y_test, model_type="XGBoost")
             predicted_price_change=row["predicted_change"],
             predicted_close=row["predicted_close"],
             model_type=model_type,
-            confidence_level=1.0
+            confidence_level=1.0,
         )
     logger.info(f"Предсказания для {model_type} сохранены в базу данных.")
     return predictions_df
@@ -226,12 +248,14 @@ def generate_predictions_long_term(model, df, target_col="close"):
     predictions = model.predict(df[target_col])
     dates = pd.date_range(start=df.index[-1], periods=len(predictions), freq="D")
 
-    long_term_predictions_df = pd.DataFrame({
-        "cryptocurrency": df["cryptocurrency"].iloc[-1],
-        "date": dates,
-        "predicted_close": predictions,
-        "predicted_change": predictions - df[target_col].iloc[-1],
-    })
+    long_term_predictions_df = pd.DataFrame(
+        {
+            "cryptocurrency": df["cryptocurrency"].iloc[-1],
+            "date": dates,
+            "predicted_close": predictions,
+            "predicted_change": predictions - df[target_col].iloc[-1],
+        }
+    )
 
     for _, row in long_term_predictions_df.iterrows():
         LongTermCryptoPrediction.objects.create(
@@ -240,7 +264,7 @@ def generate_predictions_long_term(model, df, target_col="close"):
             predicted_price_change=row["predicted_change"],
             predicted_close=row["predicted_close"],
             model_type="ARIMA",
-            confidence_level=1.0
+            confidence_level=1.0,
         )
     logger.info(f"Долгосрочные предсказания сохранены в базу данных.")
     return long_term_predictions_df

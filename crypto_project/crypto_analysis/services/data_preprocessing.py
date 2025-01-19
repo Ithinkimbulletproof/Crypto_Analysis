@@ -106,7 +106,9 @@ def split_data_by_period(df: pd.DataFrame, periods: list) -> dict:
 
 def save_to_database(df: pd.DataFrame, cryptocurrency: str, period: int):
     try:
-        logger.info(f"Сохранение данных для {cryptocurrency} ({period} дней) в базу данных.")
+        logger.info(
+            f"Сохранение данных для {cryptocurrency} ({period} дней) в базу данных."
+        )
 
         df = df.copy()
         df["cryptocurrency"] = cryptocurrency
@@ -126,16 +128,20 @@ def save_to_database(df: pd.DataFrame, cryptocurrency: str, period: int):
                 SMA_90=row.get("SMA_90", None),
                 volatility_90=row.get("volatility_90", None),
                 SMA_180=row.get("SMA_180", None),
-                volatility_180=row.get("volatility_180", None)
+                volatility_180=row.get("volatility_180", None),
             )
             for _, row in df.iterrows()
         ]
 
         PreprocessedData.objects.bulk_create(preprocessed_data_list)
 
-        logger.info(f"Данные успешно сохранены для {cryptocurrency} ({period} дней) в базу данных.")
+        logger.info(
+            f"Данные успешно сохранены для {cryptocurrency} ({period} дней) в базу данных."
+        )
     except Exception as e:
-        logger.error(f"Ошибка при сохранении данных для {cryptocurrency}: {e}", exc_info=True)
+        logger.error(
+            f"Ошибка при сохранении данных для {cryptocurrency}: {e}", exc_info=True
+        )
         raise
 
 

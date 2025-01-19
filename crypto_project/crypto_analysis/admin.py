@@ -1,5 +1,11 @@
 from django.contrib import admin
-from .models import MarketData, ShortTermCryptoPrediction, LongTermCryptoPrediction, PreprocessedData, TechAnalysed
+from .models import (
+    MarketData,
+    ShortTermCryptoPrediction,
+    LongTermCryptoPrediction,
+    PreprocessedData,
+    TechAnalysed,
+)
 
 
 @admin.register(MarketData)
