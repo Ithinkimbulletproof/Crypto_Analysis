@@ -104,9 +104,9 @@ def split_data_by_period(df: pd.DataFrame, periods: list) -> dict:
         return {}
 
 
-def save_to_database(df: pd.DataFrame, cryptocurrency: str, period: str):
+def save_to_database(df: pd.DataFrame, cryptocurrency: str, period: int):
     try:
-        logger.info(f"Сохранение данных для {cryptocurrency} ({period}) в базу данных.")
+        logger.info(f"Сохранение данных для {cryptocurrency} ({period} дней) в базу данных.")
 
         df = df.copy()
         df["cryptocurrency"] = cryptocurrency
@@ -133,7 +133,7 @@ def save_to_database(df: pd.DataFrame, cryptocurrency: str, period: str):
 
         PreprocessedData.objects.bulk_create(preprocessed_data_list)
 
-        logger.info(f"Данные успешно сохранены для {cryptocurrency} ({period}) в базу данных.")
+        logger.info(f"Данные успешно сохранены для {cryptocurrency} ({period} дней) в базу данных.")
     except Exception as e:
         logger.error(f"Ошибка при сохранении данных для {cryptocurrency}: {e}", exc_info=True)
         raise
@@ -166,7 +166,7 @@ def process_and_export_data(
 
             split_data = split_data_by_period(df, periods)
             for period, data in split_data.items():
-                save_to_database(data, crypto, f"{period}_days")
+                save_to_database(data, crypto, period)
 
             all_cryptos_data.append(
                 df[["date", "close", "high", "low", "cryptocurrency"]]

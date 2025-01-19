@@ -1,5 +1,6 @@
 import os
 import logging
+import re
 import numpy as np
 import pandas as pd
 from crypto_analysis.models import PreprocessedData, TechAnalysed
@@ -23,10 +24,12 @@ imputer = IterativeImputer(max_iter=10, random_state=42)
 
 
 def fetch_data_from_db(cryptocurrency, period):
-    data = PreprocessedData.objects.filter(cryptocurrency=cryptocurrency, period=period).values()
+    period_number = period
+
+    data = PreprocessedData.objects.filter(cryptocurrency=cryptocurrency, period=period_number).values()
 
     if not data:
-        logger.warning(f"Данные для {cryptocurrency} в периоде {period} не найдены.")
+        logger.warning(f"Данные для {cryptocurrency} в периоде {period_number} не найдены.")
         return None
 
     df = pd.DataFrame(data)
@@ -154,7 +157,12 @@ def enhance_data_processing(df):
     )
 
     df = df.infer_objects()
+
     df = df.interpolate(method="linear", limit_direction="both")
+
+    numerics_columns = ["close", "high", "low", "SMA_50", "SMA_200", "RSI", "CCI", "atr", "bb_bbm", "bb_bbh", "bb_bbl", "macd_diff"]
+    numerics_columns = [col for col in numerics_columns if col in df.columns]
+    df[numerics_columns] = imputer.fit_transform(df[numerics_columns])
 
     missing_after = df.isnull().sum()
     logger.info(
@@ -165,7 +173,7 @@ def enhance_data_processing(df):
     return df
 
 
-def split_data_by_period(df, periods=[90, 180, 365]):
+def split_data_by_period(df, periods=[30, 90, 180, 365]):
     now = datetime.now(timezone.utc)
     split_data = {}
 
@@ -255,12 +263,14 @@ def process_and_evaluate_data():
     for crypto in cryptocurrencies:
         for period in periods:
             try:
-                logger.info(f"Обработка данных для {crypto} в периоде {period}")
+                logger.info(f"Обработка данных для {crypto} в периоде {period} дней")
 
                 df_crypto = fetch_data_from_db(cryptocurrency=crypto, period=period)
 
                 if df_crypto is None:
                     continue
+
+                df_crypto = split_data_by_period(df_crypto, periods=[period])
 
                 required_columns = ["close", "high", "low"]
                 if not all(col in df_crypto.columns for col in required_columns):
