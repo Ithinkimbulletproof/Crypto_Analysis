@@ -260,7 +260,7 @@ def process_and_evaluate_data():
                 df_crypto = fetch_data_from_db(cryptocurrency=crypto, period=period)
 
                 if df_crypto is None:
-                    continue  # Пропустить, если данных нет
+                    continue
 
                 required_columns = ["close", "high", "low"]
                 if not all(col in df_crypto.columns for col in required_columns):

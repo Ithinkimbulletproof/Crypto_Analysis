@@ -6,6 +6,7 @@ import xgboost as xgb
 import lightgbm as lgb
 from dotenv import load_dotenv
 from statsmodels.tsa.arima.model import ARIMA
+from crypto_analysis.models import TechAnalysed
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -28,14 +29,23 @@ def save_predictions(predictions, file_name="predictions.csv"):
     logger.info(f"Предсказания сохранены в {file_path}")
 
 
-def load_processed_data(file_path="processed_with_technical_analysis.csv"):
-    if not os.path.exists(file_path):
-        logger.warning(f"Файл {file_path} не найден.")
+def load_processed_data(cryptocurrency=None, period=None):
+    query = TechAnalysed.objects.all()
+    if cryptocurrency:
+        query = query.filter(cryptocurrency=cryptocurrency)
+    if period:
+        query = query.filter(period=period)
+
+    data = list(query.values('date', 'cryptocurrency', 'period', 'close_price', 'high_price', 'low_price',
+                             'price_change_24h', 'SMA_30', 'volatility_30', 'SMA_90', 'volatility_90',
+                             'SMA_180', 'volatility_180', 'predicted_signal', 'target'))
+
+    if not data:
+        logger.warning(f"Данные для {cryptocurrency} в периоде {period} не найдены.")
         return None
-    df = pd.read_csv(file_path)
-    if df.empty:
-        logger.warning(f"Файл {file_path} пуст.")
-        return None
+
+    df = pd.DataFrame(data)
+
     return df
 
 
