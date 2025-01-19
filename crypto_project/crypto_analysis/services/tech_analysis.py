@@ -42,6 +42,12 @@ def fetch_data_from_db(cryptocurrency, period):
 
 
 def calculate_stochastic_oscillator(df, k_window=14, d_window=3):
+    required_columns = ["low", "high", "close"]
+
+    for col in required_columns:
+        if col not in df.columns:
+            raise KeyError(f"Столбец '{col}' отсутствует в данных")
+
     df["low"] = pd.to_numeric(df["low"], errors="coerce")
     df["high"] = pd.to_numeric(df["high"], errors="coerce")
     df["close"] = pd.to_numeric(df["close"], errors="coerce")
@@ -50,7 +56,7 @@ def calculate_stochastic_oscillator(df, k_window=14, d_window=3):
     df.loc[:, "lowest_low"] = df["low"].rolling(window=k_window).min()
     df.loc[:, "highest_high"] = df["high"].rolling(window=k_window).max()
     df.loc[:, "stoch_k"] = (
-        100 * (df["close"] - df["lowest_low"]) / (df["highest_high"] - df["lowest_low"])
+            100 * (df["close"] - df["lowest_low"]) / (df["highest_high"] - df["lowest_low"])
     )
     df.loc[:, "stoch_d"] = df["stoch_k"].rolling(window=d_window).mean()
 
@@ -64,9 +70,9 @@ def apply_technical_analysis(df):
 
     df_copy = df.copy()
 
-    df_copy["close"] = pd.to_numeric(df_copy["close"], errors="coerce")
-    df_copy["high"] = pd.to_numeric(df_copy["high"], errors="coerce")
-    df_copy["low"] = pd.to_numeric(df_copy["low"], errors="coerce")
+    df_copy["close"] = pd.to_numeric(df_copy["close_price"], errors="coerce")
+    df_copy["high"] = pd.to_numeric(df_copy["high_price"], errors="coerce")
+    df_copy["low"] = pd.to_numeric(df_copy["low_price"], errors="coerce")
 
     logger.info("Проверка наличия столбцов для анализа: 'close', 'high', 'low'")
     if not all(col in df_copy.columns for col in ["close", "high", "low"]):
@@ -75,24 +81,18 @@ def apply_technical_analysis(df):
 
     try:
         if "SMA_50" not in df_copy.columns:
-            df_copy["SMA_50"] = SMAIndicator(
-                df_copy["close"], window=50
-            ).sma_indicator()
+            df_copy["SMA_50"] = SMAIndicator(df_copy["close"], window=50).sma_indicator()
         if "SMA_200" not in df_copy.columns:
-            df_copy["SMA_200"] = SMAIndicator(
-                df_copy["close"], window=200
-            ).sma_indicator()
+            df_copy["SMA_200"] = SMAIndicator(df_copy["close"], window=200).sma_indicator()
 
         if "RSI" not in df_copy.columns:
             df_copy["RSI"] = RSIIndicator(df_copy["close"], window=14).rsi()
 
-        df_copy["CCI"] = CCIIndicator(
-            df_copy["high"], df_copy["low"], df_copy["close"], window=14
-        ).cci()
-        atr = AverageTrueRange(
-            df_copy["high"], df_copy["low"], df_copy["close"], window=14
-        )
+        df_copy["CCI"] = CCIIndicator(df_copy["high"], df_copy["low"], df_copy["close"], window=14).cci()
+
+        atr = AverageTrueRange(df_copy["high"], df_copy["low"], df_copy["close"], window=14)
         df_copy["atr"] = atr.average_true_range()
+
         bb = BollingerBands(df_copy["close"], window=20, window_dev=2)
         df_copy["bb_bbm"] = bb.bollinger_mavg()
         df_copy["bb_bbh"] = bb.bollinger_hband()
