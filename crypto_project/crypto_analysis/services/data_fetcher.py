@@ -92,10 +92,9 @@ def fetch_and_store_data(exchange, symbol, since, timeframe):
             logger.info(f"Получено {len(data)} записей для {symbol} на {exchange.id}")
             for record in data:
                 timestamp = record[0]
-                naive_date = datetime.utcfromtimestamp(timestamp / 1000)
-                aware_date = naive_date.replace(tzinfo=timezone.utc)
+                aware_date = datetime.fromtimestamp(timestamp / 1000, timezone.utc)
                 logger.debug(
-                    f"Timestamp: {timestamp}, Naive Date: {naive_date}, Aware Date: {aware_date}"
+                    f"Timestamp: {timestamp}, Aware Date: {aware_date}"
                 )
                 all_data.append(
                     (

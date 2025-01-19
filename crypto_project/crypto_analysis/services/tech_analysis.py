@@ -1,6 +1,5 @@
 import os
 import logging
-import re
 import numpy as np
 import pandas as pd
 from crypto_analysis.models import PreprocessedData, TechAnalysed
@@ -41,19 +40,12 @@ def fetch_data_from_db(cryptocurrency, period):
             logger.warning(
                 f"Создан пустой DataFrame для {cryptocurrency} в периоде {period}."
             )
+            return None
     except Exception as e:
         logger.error(f"Ошибка создания DataFrame: {str(e)}")
         return None
 
-    if df.empty:
-        logger.warning(f"Полученные данные для {cryptocurrency} пусты.")
-        return None
-
-    missing_data = df.isnull().sum()
-    logger.info(
-        f"Пропущенные значения в исходных данных:\n{missing_data[missing_data > 0]}"
-    )
-
+    logger.info(f"Получены данные для {cryptocurrency} в периоде {period} дней")
     return df
 
 
@@ -99,20 +91,20 @@ def enhance_data_processing(df):
         "bb_bbl",
         "macd_diff",
     ]
-
     df[numerics_columns] = df[numerics_columns].astype("float64")
 
     df = df.interpolate(method="linear", limit_direction="both")
-
     df = df.fillna(method="ffill").fillna(method="bfill")
 
-    df[numerics_columns] = imputer.fit_transform(df[numerics_columns])
+    try:
+        df[numerics_columns] = imputer.fit_transform(df[numerics_columns])
+    except Exception as e:
+        logger.error(f"Ошибка импутирования: {str(e)}")
 
     missing_after = df.isnull().sum()
     logger.info(
         f"Пропущенные значения после обработки:\n{missing_after[missing_after > 0]}"
     )
-
     logger.info(f"Время выполнения улучшения данных: {datetime.now() - start_time}")
     return df
 
@@ -130,6 +122,13 @@ def generate_target_variable(df, period=24):
 
 def apply_technical_analysis(df):
     start_time = datetime.now()
+
+    for lag in [1, 3, 7, 30, 90]:
+        if len(df) > lag:
+            df[f"close_lag_{lag}"] = df["close"].shift(lag)
+            df[f"RSI_lag_{lag}"] = (
+                df["RSI"].shift(lag) if "RSI" in df.columns else np.nan
+            )
 
     df_copy = df.copy()
 
@@ -158,7 +157,6 @@ def apply_technical_analysis(df):
         df_copy["CCI"] = CCIIndicator(
             df_copy["high"], df_copy["low"], df_copy["close"], window=14
         ).cci()
-
         atr = AverageTrueRange(
             df_copy["high"], df_copy["low"], df_copy["close"], window=14
         )
@@ -173,7 +171,6 @@ def apply_technical_analysis(df):
 
         macd = MACD(df_copy["close"])
         df_copy["macd_diff"] = macd.macd_diff()
-
     except Exception as e:
         logger.error(f"Ошибка при расчете индикаторов: {str(e)}")
         return df_copy
@@ -192,14 +189,12 @@ def apply_technical_analysis(df):
         "bb_bbl",
         "macd_diff",
     ]
-
     numerics_columns = [col for col in numerics_columns if col in df_copy.columns]
 
-    df_copy[numerics_columns] = imputer.fit_transform(df_copy[numerics_columns])
-
-    logger.info(
-        f"Пропущенные значения после обработки данных:\n{df_copy.isnull().sum()}"
-    )
+    try:
+        df_copy[numerics_columns] = imputer.fit_transform(df_copy[numerics_columns])
+    except Exception as e:
+        logger.error(f"Ошибка импутирования индикаторов: {str(e)}")
 
     df_copy["predicted_signal"] = 0
     df_copy.loc[df_copy["SMA_50"] > df_copy["SMA_200"], "predicted_signal"] = 1
@@ -234,6 +229,7 @@ def calculate_stochastic_oscillator(df, k_window=14, d_window=3):
 
 
 def save_to_db(df, cryptocurrency, period):
+    tech_analysed_objects = []
     for _, row in df.iterrows():
         tech_analysed = TechAnalysed(
             date=row["date"],
@@ -252,8 +248,9 @@ def save_to_db(df, cryptocurrency, period):
             predicted_signal=row.get("predicted_signal", None),
             target=row.get("target", None),
         )
-        tech_analysed.save()
+        tech_analysed_objects.append(tech_analysed)
 
+    TechAnalysed.objects.bulk_create(tech_analysed_objects)
     logger.info(f"Данные для {cryptocurrency} в периоде {period} успешно сохранены.")
 
 
