@@ -2,12 +2,11 @@ import os
 import logging
 import numpy as np
 import pandas as pd
-from collections import defaultdict
 from crypto_analysis.models import PreprocessedData, TechAnalysed
 from ta.trend import MACD
 from dotenv import load_dotenv
 from ta.momentum import RSIIndicator
-from ta.trend import SMAIndicator, CCIIndicator
+from ta.trend import CCIIndicator
 from datetime import datetime, timedelta, timezone
 from ta.volatility import AverageTrueRange, BollingerBands
 from sklearn.experimental import enable_iterative_imputer
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-numeric_columns = ["close_price", "high_price", "low_price", "RSI", "SMA_50", "SMA_200"]
+numeric_columns = ["close_price", "high_price", "low_price", "RSI"]
 imputer = IterativeImputer(max_iter=10, random_state=42)
 
 
@@ -51,50 +50,11 @@ def fetch_data_from_db(cryptocurrency, period):
     return df
 
 
-def check_data_quality(df, stage="initial"):
-    missing_data = df.isnull().sum()
-    if missing_data.any():
-        logger.warning(f"Пропущенные значения на стадии {stage}:\n{missing_data[missing_data > 0]}")
-
-    anomaly_rows = defaultdict(list)
-
-    for col in df.select_dtypes(include=[np.number]).columns:
-        mean = df[col].mean()
-        std = df[col].std()
-
-        anomalies = df[(df[col] < mean - 3 * std) | (df[col] > mean + 3 * std)]
-        if not anomalies.empty:
-            logger.warning(f"Аномалии в столбце '{col}' на стадии {stage}:\n{anomalies[[col]]}")
-            anomaly_rows[col].append(anomalies)
-
-    duplicates = df[df.duplicated()]
-    if not duplicates.empty:
-        logger.warning(f"Дублированные строки на стадии {stage}:\n{duplicates}")
-
-    if anomaly_rows:
-        all_anomalies = pd.concat(
-            [pd.concat(anomaly_rows[col]).assign(column_with_anomaly=col) for col in anomaly_rows]
-        ).drop_duplicates()
-
-        logger.info(f"Собраны все строки с аномалиями на стадии {stage}:\n{all_anomalies}")
-        return all_anomalies
-
-    return pd.DataFrame()
-
-
-def check_required_columns(df, required_columns):
-    missing_columns = [col for col in required_columns if col not in df.columns]
-    if missing_columns:
-        logger.error(f"Отсутствуют обязательные столбцы: {missing_columns}")
-        return False
-    return True
-
-
 def split_data_by_period(df, periods=[30, 90, 180, 365]):
     now = datetime.now(timezone.utc)
     split_data = {}
 
-    df["date"] = pd.to_datetime(df["date"])
+    df["date"] = pd.to_datetime(df["date"]).dt.tz_localize('UTC')
 
     for period in periods:
         date_limit = now - timedelta(days=period)
@@ -106,13 +66,10 @@ def split_data_by_period(df, periods=[30, 90, 180, 365]):
 def enhance_data_processing(df, imputer, logger):
     start_time = datetime.now()
 
-    for lag in [1, 3, 7, 30, 90]:
+    for lag in [30, 90, 180, 365]:
         df[f"close_lag_{lag}"] = df["close_price"].shift(lag)
         if "RSI" in df.columns:
             df[f"RSI_lag_{lag}"] = df["RSI"].shift(lag)
-
-    for window in [10, 30, 90]:
-        df[f"SMA_{window}"] = SMAIndicator(df["close_price"], window=window).sma_indicator()
 
     missing_before = df.isnull().sum()
     logger.info(f"Пропущенные значения перед обработкой:\n{missing_before[missing_before > 0]}")
@@ -153,7 +110,7 @@ def generate_target_variable(df, period=24):
 def apply_technical_analysis(df):
     start_time = datetime.now()
 
-    for lag in [1, 3, 7, 30, 90]:
+    for lag in [30, 90, 180, 365]:
         if len(df) > lag:
             df[f"close_lag_{lag}"] = df["close_price"].shift(lag)
             df[f"RSI_lag_{lag}"] = (
@@ -172,11 +129,6 @@ def apply_technical_analysis(df):
         return df_copy
 
     try:
-        if "SMA_50" not in df_copy.columns:
-            df_copy["SMA_50"] = SMAIndicator(df_copy["close_price"], window=50).sma_indicator()
-        if "SMA_200" not in df_copy.columns:
-            df_copy["SMA_200"] = SMAIndicator(df_copy["close_price"], window=200).sma_indicator()
-
         if "RSI" not in df_copy.columns:
             df_copy["RSI"] = RSIIndicator(df_copy["close_price"], window=14).rsi()
 
@@ -310,35 +262,16 @@ def process_and_evaluate_data():
                 if df_crypto is None:
                     continue
 
-                if not check_required_columns(df_crypto, ["close_price", "high_price", "low_price"]):
-                    continue
-
-                check_data_quality(df_crypto, stage="fetch")
-
                 split_data = split_data_by_period(df_crypto, periods=[period])
                 df_crypto = split_data[period]
 
-                check_data_quality(df_crypto, stage="split")
-
-                if not check_required_columns(df_crypto, ["close_price", "high_price", "low_price"]):
-                    continue
-
                 df_crypto = apply_technical_analysis(df_crypto)
-
-                check_data_quality(df_crypto, stage="technical_analysis")
 
                 df_crypto = enhance_data_processing(df_crypto, imputer, logger)
 
-                check_data_quality(df_crypto, stage="enhanced_processing")
-
                 df_crypto = generate_target_variable(df_crypto, period=24)
 
-                if not check_required_columns(df_crypto, ["close_price", "high_price", "low_price"]):
-                    continue
-
                 df_crypto = apply_technical_analysis(df_crypto)
-
-                check_data_quality(df_crypto, stage="final")
 
                 evaluate_model_performance(df_crypto)
                 save_to_db(df_crypto, crypto, period)
