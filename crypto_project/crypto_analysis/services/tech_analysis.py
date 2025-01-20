@@ -2,6 +2,7 @@ import os
 import logging
 import numpy as np
 import pandas as pd
+from collections import defaultdict
 from crypto_analysis.models import PreprocessedData, TechAnalysed
 from ta.trend import MACD
 from dotenv import load_dotenv
@@ -55,9 +56,14 @@ def fetch_data_from_db(cryptocurrency, period):
 
 
 def check_data_quality(df, stage="initial"):
+
     missing_data = df.isnull().sum()
     if missing_data.any():
-        logger.warning(f"Пропущенные значения на стадии {stage}:\n{missing_data[missing_data > 0]}")
+        logger.warning(
+            f"Пропущенные значения на стадии {stage}:\n{missing_data[missing_data > 0]}"
+        )
+
+    anomaly_rows = defaultdict(pd.DataFrame)
 
     for col in df.select_dtypes(include=[np.number]).columns:
         mean = df[col].mean()
@@ -65,10 +71,19 @@ def check_data_quality(df, stage="initial"):
         anomalies = df[(df[col] < mean - 3 * std) | (df[col] > mean + 3 * std)]
         if not anomalies.empty:
             logger.warning(f"Аномалии на стадии {stage} в столбце {col}:\n{anomalies}")
+            anomaly_rows[col] = anomalies
 
     duplicates = df[df.duplicated()]
     if not duplicates.empty:
         logger.warning(f"Дублированные строки на стадии {stage}:\n{duplicates}")
+
+    if anomaly_rows:
+        all_anomalies = pd.concat(anomaly_rows.values()).drop_duplicates()
+        logger.info(f"Собраны все строки с аномалиями:\n{all_anomalies}")
+        return all_anomalies
+
+    return pd.DataFrame()
+
 
 def check_required_columns(df, required_columns):
     missing_columns = [col for col in required_columns if col not in df.columns]

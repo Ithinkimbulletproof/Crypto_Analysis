@@ -127,23 +127,8 @@ def store_data_bulk(all_data):
     if not all_data:
         return
 
-    records_to_check = {
-        (symbol, datetime.fromtimestamp(timestamp / 1000, timezone.utc), exchange_id)
-        for symbol, exchange_id, timestamp, _, _, _, _, _ in all_data
-    }
+    data_by_symbol_date = {}
 
-    existing_records = set(
-        MarketData.objects.filter(
-            cryptocurrency__in={symbol for symbol, _, _, _, _, _, _, _ in all_data},
-            date__in={
-                datetime.fromtimestamp(timestamp / 1000, timezone.utc)
-                for _, _, timestamp, _, _, _, _, _ in all_data
-            },
-            exchange__in={exchange_id for _, exchange_id, _, _, _, _, _, _ in all_data},
-        ).values_list("cryptocurrency", "date", "exchange")
-    )
-
-    market_data_objects = []
     for (
         symbol,
         exchange_id,
@@ -155,17 +140,65 @@ def store_data_bulk(all_data):
         volume,
     ) in all_data:
         date = datetime.fromtimestamp(timestamp / 1000, timezone.utc)
-        if (symbol, date, exchange_id) not in existing_records:
+
+        if (symbol, date) not in data_by_symbol_date:
+            data_by_symbol_date[(symbol, date)] = {
+                "open_prices": [],
+                "high_prices": [],
+                "low_prices": [],
+                "close_prices": [],
+                "volumes": [],
+                "exchange_ids": set(),
+            }
+
+        data_by_symbol_date[(symbol, date)]["open_prices"].append(open_price)
+        data_by_symbol_date[(symbol, date)]["high_prices"].append(high_price)
+        data_by_symbol_date[(symbol, date)]["low_prices"].append(low_price)
+        data_by_symbol_date[(symbol, date)]["close_prices"].append(close_price)
+        data_by_symbol_date[(symbol, date)]["volumes"].append(volume)
+        data_by_symbol_date[(symbol, date)]["exchange_ids"].add(exchange_id)
+
+    market_data_objects = []
+    for (symbol, date), data in data_by_symbol_date.items():
+        avg_open_price = sum(data["open_prices"]) / len(data["open_prices"])
+        avg_high_price = sum(data["high_prices"]) / len(data["high_prices"])
+        avg_low_price = sum(data["low_prices"]) / len(data["low_prices"])
+        avg_close_price = sum(data["close_prices"]) / len(data["close_prices"])
+        avg_volume = sum(data["volumes"]) / len(data["volumes"])
+
+        exchange_ids = ", ".join(data["exchange_ids"])
+
+        logger.info(
+            f"Средние данные сохранены для {symbol} по биржам: {exchange_ids}. "
+            f"Средние значения - Open: {avg_open_price}, High: {avg_high_price}, "
+            f"Low: {avg_low_price}, Close: {avg_close_price}, Volume: {avg_volume}"
+        )
+
+        existing_record = MarketData.objects.filter(
+            cryptocurrency=symbol, date=date, exchange=exchange_ids
+        ).first()
+
+        if existing_record:
+            existing_record.open_price = avg_open_price
+            existing_record.high_price = avg_high_price
+            existing_record.low_price = avg_low_price
+            existing_record.close_price = avg_close_price
+            existing_record.volume = avg_volume
+            existing_record.save()
+            logger.info(
+                f"Запись обновлена для {symbol} на {date} по биржам: {exchange_ids}"
+            )
+        else:
             market_data_objects.append(
                 MarketData(
                     cryptocurrency=symbol,
                     date=date,
-                    exchange=exchange_id,
-                    open_price=open_price,
-                    high_price=high_price,
-                    low_price=low_price,
-                    close_price=close_price,
-                    volume=volume,
+                    exchange=exchange_ids,
+                    open_price=avg_open_price,
+                    high_price=avg_high_price,
+                    low_price=avg_low_price,
+                    close_price=avg_close_price,
+                    volume=avg_volume,
                 )
             )
 
