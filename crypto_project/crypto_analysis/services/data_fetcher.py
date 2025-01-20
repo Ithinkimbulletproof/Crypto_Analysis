@@ -2,6 +2,7 @@ import os
 import time
 import ccxt
 import logging
+import statistics
 from dotenv import load_dotenv
 from django.db.models import Max
 from datetime import datetime, timezone
@@ -35,15 +36,11 @@ def get_last_date(symbol, exchange):
 
 
 def get_since(last_date, default_start_date):
-    if last_date:
-        since = int(last_date.timestamp() * 1000)
-    else:
-        since = default_start_date
-    return since
+    return int(last_date.timestamp() * 1000) if last_date else default_start_date
 
 
 def fetch_data():
-    exchanges = [ccxt.binance(), ccxt.kraken()]
+    exchanges = [ccxt.binance(), ccxt.kraken(), ccxt.okx()]
     symbols = os.getenv("CRYPTOPAIRS").split(",")
     timeframe = "1h"
     default_start_date = get_default_start_date()
@@ -60,18 +57,13 @@ def fetch_data():
 
 
 def process_exchange(exchange, symbols, default_start_date, timeframe):
-    logger.info(f"Начало обработки биржи: {exchange.id}")
     try:
         exchange.load_markets()
         for symbol in symbols:
             logger.info(f"Обработка пары {symbol} на {exchange.id}")
             if symbol in exchange.markets:
                 last_date = get_last_date(symbol, exchange)
-                logger.info(
-                    f"Последняя дата для {symbol} на {exchange.id}: {last_date}"
-                )
                 since = get_since(last_date, default_start_date)
-                logger.info(f"Дата начала для загрузки данных: {since}")
                 fetch_and_store_data(exchange, symbol, since, timeframe)
             else:
                 logger.warning(f"Пара {symbol} не найдена на {exchange.id}")
@@ -89,11 +81,8 @@ def fetch_and_store_data(exchange, symbol, since, timeframe):
             if not data:
                 logger.info(f"Данные завершены для {symbol} на {exchange.id}")
                 break
-            logger.info(f"Получено {len(data)} записей для {symbol} на {exchange.id}")
             for record in data:
                 timestamp = record[0]
-                aware_date = datetime.fromtimestamp(timestamp / 1000, timezone.utc)
-                logger.debug(f"Timestamp: {timestamp}, Aware Date: {aware_date}")
                 all_data.append(
                     (
                         symbol,
@@ -117,13 +106,10 @@ def fetch_and_store_data(exchange, symbol, since, timeframe):
         except Exception as e:
             logger.error(f"Ошибка загрузки: {str(e)}")
             break
-    store_data_bulk(all_data)
-    logger.info(
-        f"Общее количество загруженных записей для {symbol} на {exchange.id}: {len(all_data)}"
-    )
+    store_data_bulk(all_data, exchange.id)
 
 
-def store_data_bulk(all_data):
+def store_data_bulk(all_data, exchange_id):
     if not all_data:
         return
 
@@ -160,19 +146,13 @@ def store_data_bulk(all_data):
 
     market_data_objects = []
     for (symbol, date), data in data_by_symbol_date.items():
-        avg_open_price = sum(data["open_prices"]) / len(data["open_prices"])
-        avg_high_price = sum(data["high_prices"]) / len(data["high_prices"])
-        avg_low_price = sum(data["low_prices"]) / len(data["low_prices"])
-        avg_close_price = sum(data["close_prices"]) / len(data["close_prices"])
-        avg_volume = sum(data["volumes"]) / len(data["volumes"])
+        avg_open_price = statistics.mean(data["open_prices"])
+        avg_high_price = statistics.mean(data["high_prices"])
+        avg_low_price = statistics.mean(data["low_prices"])
+        avg_close_price = statistics.mean(data["close_prices"])
+        avg_volume = statistics.mean(data["volumes"])
 
         exchange_ids = ", ".join(data["exchange_ids"])
-
-        logger.info(
-            f"Средние данные сохранены для {symbol} по биржам: {exchange_ids}. "
-            f"Средние значения - Open: {avg_open_price}, High: {avg_high_price}, "
-            f"Low: {avg_low_price}, Close: {avg_close_price}, Volume: {avg_volume}"
-        )
 
         existing_record = MarketData.objects.filter(
             cryptocurrency=symbol, date=date, exchange=exchange_ids
@@ -185,9 +165,6 @@ def store_data_bulk(all_data):
             existing_record.close_price = avg_close_price
             existing_record.volume = avg_volume
             existing_record.save()
-            logger.info(
-                f"Запись обновлена для {symbol} на {date} по биржам: {exchange_ids}"
-            )
         else:
             market_data_objects.append(
                 MarketData(
@@ -203,12 +180,4 @@ def store_data_bulk(all_data):
             )
 
     if market_data_objects:
-        try:
-            MarketData.objects.bulk_create(market_data_objects, batch_size=1000)
-            logger.info(
-                f"Данные успешно сохранены для {len(market_data_objects)} записей"
-            )
-        except Exception as e:
-            logger.error(f"Ошибка при сохранении данных в базу: {str(e)}")
-    else:
-        logger.info("Нет новых данных для сохранения")
+        MarketData.objects.bulk_create(market_data_objects, batch_size=1000)

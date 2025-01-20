@@ -63,6 +63,8 @@ class PreprocessedData(models.Model):
     volatility_90 = models.FloatField(null=True, blank=True)
     SMA_180 = models.FloatField(null=True, blank=True)
     volatility_180 = models.FloatField(null=True, blank=True)
+    SMA_365 = models.FloatField(null=True, blank=True)
+    volatility_365 = models.FloatField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.cryptocurrency} - {self.date}"

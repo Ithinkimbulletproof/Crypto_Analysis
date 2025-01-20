@@ -80,7 +80,7 @@ def preprocess_data(
 
         df["price_change_7d"] = df["close"].pct_change(periods=7 * 24)
 
-        rolling_windows = [30, 90, 180]
+        rolling_windows = [30, 90, 180, 365]
         for window in rolling_windows:
             df[f"SMA_{window}"] = df["close"].rolling(window=window).mean()
             df[f"volatility_{window}"] = df["close"].rolling(window=window).std()
@@ -139,6 +139,8 @@ def save_to_database(df: pd.DataFrame, cryptocurrency: str, period: int):
                 volatility_90=row.get("volatility_90", None),
                 SMA_180=row.get("SMA_180", None),
                 volatility_180=row.get("volatility_180", None),
+                SMA_365=row.get("SMA_365", None),
+                volatility_365=row.get("volatility_365", None),
             )
             for _, row in df.iterrows()
         ]
