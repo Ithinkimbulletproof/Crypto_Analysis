@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-numeric_columns = ["close", "high", "low", "RSI", "SMA_50", "SMA_200"]
+numeric_columns = ["close_price", "high_price", "low_price", "RSI", "SMA_50", "SMA_200"]
 imputer = IterativeImputer(max_iter=10, random_state=42)
 
 
@@ -56,23 +56,27 @@ def check_data_quality(df, stage="initial"):
     if missing_data.any():
         logger.warning(f"Пропущенные значения на стадии {stage}:\n{missing_data[missing_data > 0]}")
 
-    anomaly_rows = defaultdict(pd.DataFrame)
+    anomaly_rows = defaultdict(list)
 
     for col in df.select_dtypes(include=[np.number]).columns:
         mean = df[col].mean()
         std = df[col].std()
+
         anomalies = df[(df[col] < mean - 3 * std) | (df[col] > mean + 3 * std)]
         if not anomalies.empty:
-            logger.warning(f"Аномалии на стадии {stage} в столбце {col}:\n{anomalies}")
-            anomaly_rows[col] = anomalies
+            logger.warning(f"Аномалии в столбце '{col}' на стадии {stage}:\n{anomalies[[col]]}")
+            anomaly_rows[col].append(anomalies)
 
     duplicates = df[df.duplicated()]
     if not duplicates.empty:
         logger.warning(f"Дублированные строки на стадии {stage}:\n{duplicates}")
 
     if anomaly_rows:
-        all_anomalies = pd.concat(anomaly_rows.values()).drop_duplicates()
-        logger.info(f"Собраны все строки с аномалиями:\n{all_anomalies}")
+        all_anomalies = pd.concat(
+            [pd.concat(anomaly_rows[col]).assign(column_with_anomaly=col) for col in anomaly_rows]
+        ).drop_duplicates()
+
+        logger.info(f"Собраны все строки с аномалиями на стадии {stage}:\n{all_anomalies}")
         return all_anomalies
 
     return pd.DataFrame()
@@ -137,10 +141,10 @@ def enhance_data_processing(df, imputer, logger):
 
 def generate_target_variable(df, period=24):
     df["target"] = 0
-    df["future_close"] = df["close"].shift(-period)
+    df["future_close"] = df["close_price"].shift(-period)
 
-    df.loc[df["future_close"] > df["close"], "target"] = 1
-    df.loc[df["future_close"] < df["close"], "target"] = -1
+    df.loc[df["future_close"] > df["close_price"], "target"] = 1
+    df.loc[df["future_close"] < df["close_price"], "target"] = -1
 
     df.drop(columns=["future_close"], inplace=True)
     return df
@@ -151,50 +155,50 @@ def apply_technical_analysis(df):
 
     for lag in [1, 3, 7, 30, 90]:
         if len(df) > lag:
-            df[f"close_lag_{lag}"] = df["close"].shift(lag)
+            df[f"close_lag_{lag}"] = df["close_price"].shift(lag)
             df[f"RSI_lag_{lag}"] = (
                 df["RSI"].shift(lag) if "RSI" in df.columns else np.nan
             )
 
     df_copy = df.copy()
 
-    df_copy["close"] = pd.to_numeric(df_copy["close_price"], errors="coerce")
-    df_copy["high"] = pd.to_numeric(df_copy["high_price"], errors="coerce")
-    df_copy["low"] = pd.to_numeric(df_copy["low_price"], errors="coerce")
+    df_copy["close_price"] = pd.to_numeric(df_copy["close_price"], errors="coerce")
+    df_copy["high_price"] = pd.to_numeric(df_copy["high_price"], errors="coerce")
+    df_copy["low_price"] = pd.to_numeric(df_copy["low_price"], errors="coerce")
 
-    logger.info("Проверка наличия столбцов для анализа: 'close', 'high', 'low'")
-    if not all(col in df_copy.columns for col in ["close", "high", "low"]):
+    logger.info("Проверка наличия столбцов для анализа: 'close_price', 'high_price', 'low_price'")
+    if not all(col in df_copy.columns for col in ["close_price", "high_price", "low_price"]):
         logger.error("Отсутствуют необходимые столбцы для расчёта индикаторов.")
         return df_copy
 
     try:
         if "SMA_50" not in df_copy.columns:
-            df_copy["SMA_50"] = SMAIndicator(df_copy["close"], window=50).sma_indicator()
+            df_copy["SMA_50"] = SMAIndicator(df_copy["close_price"], window=50).sma_indicator()
         if "SMA_200" not in df_copy.columns:
-            df_copy["SMA_200"] = SMAIndicator(df_copy["close"], window=200).sma_indicator()
+            df_copy["SMA_200"] = SMAIndicator(df_copy["close_price"], window=200).sma_indicator()
 
         if "RSI" not in df_copy.columns:
-            df_copy["RSI"] = RSIIndicator(df_copy["close"], window=14).rsi()
+            df_copy["RSI"] = RSIIndicator(df_copy["close_price"], window=14).rsi()
 
-        df_copy["CCI"] = CCIIndicator(df_copy["high"], df_copy["low"], df_copy["close"], window=14).cci()
-        atr = AverageTrueRange(df_copy["high"], df_copy["low"], df_copy["close"], window=14)
+        df_copy["CCI"] = CCIIndicator(df_copy["high_price"], df_copy["low_price"], df_copy["close_price"], window=14).cci()
+        atr = AverageTrueRange(df_copy["high_price"], df_copy["low_price"], df_copy["close_price"], window=14)
         df_copy["atr"] = atr.average_true_range()
 
-        bb = BollingerBands(df_copy["close"], window=20, window_dev=2)
+        bb = BollingerBands(df_copy["close_price"], window=20, window_dev=2)
         df_copy["bb_bbm"] = bb.bollinger_mavg()
         df_copy["bb_bbh"] = bb.bollinger_hband()
         df_copy["bb_bbl"] = bb.bollinger_lband()
 
         df_copy = calculate_stochastic_oscillator(df_copy)
 
-        macd = MACD(df_copy["close"])
+        macd = MACD(df_copy["close_price"])
         df_copy["macd_diff"] = macd.macd_diff()
     except Exception as e:
         logger.error(f"Ошибка при расчете индикаторов: {str(e)} для {df_copy['cryptocurrency'].iloc[0]}")
         return df_copy
 
     numerics_columns = [
-        "close", "high", "low", "SMA_50", "SMA_200", "RSI", "CCI", "atr", "bb_bbm", "bb_bbh", "bb_bbl", "macd_diff"
+        "close_price", "high_price", "low_price", "SMA_50", "SMA_200", "RSI", "CCI", "atr", "bb_bbm", "bb_bbh", "bb_bbl", "macd_diff"
     ]
     numerics_columns = [col for col in numerics_columns if col in df_copy.columns]
 
@@ -212,21 +216,21 @@ def apply_technical_analysis(df):
 
 
 def calculate_stochastic_oscillator(df, k_window=14, d_window=3):
-    required_columns = ["low", "high", "close"]
+    required_columns = ["low_price", "high_price", "close_price"]
 
     for col in required_columns:
         if col not in df.columns:
             raise KeyError(f"Столбец '{col}' отсутствует в данных")
 
-    df["low"] = pd.to_numeric(df["low"], errors="coerce")
-    df["high"] = pd.to_numeric(df["high"], errors="coerce")
-    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    df["low_price"] = pd.to_numeric(df["low_price"], errors="coerce")
+    df["high_price"] = pd.to_numeric(df["high_price"], errors="coerce")
+    df["close_price"] = pd.to_numeric(df["close_price"], errors="coerce")
 
-    df = df.dropna(subset=["low", "high", "close"]).copy()
-    df.loc[:, "lowest_low"] = df["low"].rolling(window=k_window).min()
-    df.loc[:, "highest_high"] = df["high"].rolling(window=k_window).max()
+    df = df.dropna(subset=["low_price", "high_price", "close_price"]).copy()
+    df.loc[:, "lowest_low"] = df["low_price"].rolling(window=k_window).min()
+    df.loc[:, "highest_high"] = df["high_price"].rolling(window=k_window).max()
     df.loc[:, "stoch_k"] = (
-        100 * (df["close"] - df["lowest_low"]) / (df["highest_high"] - df["lowest_low"])
+        100 * (df["close_price"] - df["lowest_low"]) / (df["highest_high"] - df["lowest_low"])
     )
 
     df["stoch_d"] = df["stoch_k"].rolling(window=d_window).mean()
@@ -241,9 +245,9 @@ def save_to_db(df, cryptocurrency, period):
             date=row["date"],
             cryptocurrency=cryptocurrency,
             period=period,
-            close_price=row["close"],
-            high_price=row["high"],
-            low_price=row["low"],
+            close_price=row["close_price"],
+            high_price=row["high_price"],
+            low_price=row["low_price"],
             price_change_24h=row.get("price_change_24h", None),
             SMA_30=row.get("SMA_30", None),
             volatility_30=row.get("volatility_30", None),
@@ -306,7 +310,7 @@ def process_and_evaluate_data():
                 if df_crypto is None:
                     continue
 
-                if not check_required_columns(df_crypto, ["close", "high", "low"]):
+                if not check_required_columns(df_crypto, ["close_price", "high_price", "low_price"]):
                     continue
 
                 check_data_quality(df_crypto, stage="fetch")
@@ -316,20 +320,20 @@ def process_and_evaluate_data():
 
                 check_data_quality(df_crypto, stage="split")
 
-                if not check_required_columns(df_crypto, ["close", "high", "low"]):
+                if not check_required_columns(df_crypto, ["close_price", "high_price", "low_price"]):
                     continue
 
                 df_crypto = apply_technical_analysis(df_crypto)
 
                 check_data_quality(df_crypto, stage="technical_analysis")
 
-                df_crypto = enhance_data_processing(df_crypto)
+                df_crypto = enhance_data_processing(df_crypto, imputer, logger)
 
                 check_data_quality(df_crypto, stage="enhanced_processing")
 
                 df_crypto = generate_target_variable(df_crypto, period=24)
 
-                if not check_required_columns(df_crypto, ["close", "high", "low"]):
+                if not check_required_columns(df_crypto, ["close_price", "high_price", "low_price"]):
                     continue
 
                 df_crypto = apply_technical_analysis(df_crypto)
