@@ -29,7 +29,9 @@ def fetch_data_from_db(cryptocurrency, period):
     ).values()
 
     if not data:
-        logger.warning(f"Данные для {cryptocurrency} в периоде {period_number} не найдены.")
+        logger.warning(
+            f"Данные для {cryptocurrency} в периоде {period_number} не найдены."
+        )
         return None
 
     try:
@@ -39,12 +41,16 @@ def fetch_data_from_db(cryptocurrency, period):
             df = pd.DataFrame(data)
 
         if df.empty:
-            logger.warning(f"Создан пустой DataFrame для {cryptocurrency} в периоде {period}.")
+            logger.warning(
+                f"Создан пустой DataFrame для {cryptocurrency} в периоде {period}."
+            )
             return None
 
         logger.info(f"Получены данные для {cryptocurrency} в периоде {period} дней")
     except Exception as e:
-        logger.error(f"Ошибка создания DataFrame для {cryptocurrency} в периоде {period}: {str(e)}")
+        logger.error(
+            f"Ошибка создания DataFrame для {cryptocurrency} в периоде {period}: {str(e)}"
+        )
         return None
 
     return df
@@ -54,7 +60,7 @@ def split_data_by_period(df, periods=[30, 90, 180, 365]):
     now = datetime.now(timezone.utc)
     split_data = {}
 
-    df["date"] = pd.to_datetime(df["date"]).dt.tz_localize('UTC')
+    df["date"] = pd.to_datetime(df["date"]).dt.tz_localize("UTC")
 
     for period in periods:
         date_limit = now - timedelta(days=period)
@@ -72,10 +78,23 @@ def enhance_data_processing(df, imputer, logger):
             df[f"RSI_lag_{lag}"] = df["RSI"].shift(lag)
 
     missing_before = df.isnull().sum()
-    logger.info(f"Пропущенные значения перед обработкой:\n{missing_before[missing_before > 0]}")
+    logger.info(
+        f"Пропущенные значения перед обработкой:\n{missing_before[missing_before > 0]}"
+    )
 
     numerics_columns = [
-        "close_price", "high_price", "low_price", "SMA_50", "SMA_200", "RSI", "CCI", "atr", "bb_bbm", "bb_bbh", "bb_bbl", "macd_diff"
+        "close_price",
+        "high_price",
+        "low_price",
+        "SMA_50",
+        "SMA_200",
+        "RSI",
+        "CCI",
+        "atr",
+        "bb_bbm",
+        "bb_bbh",
+        "bb_bbl",
+        "macd_diff",
     ]
     numerics_columns = [col for col in numerics_columns if col in df.columns]
 
@@ -88,10 +107,14 @@ def enhance_data_processing(df, imputer, logger):
         if numerics_columns:
             df[numerics_columns] = imputer.fit_transform(df[numerics_columns])
     except Exception as e:
-        logger.error(f"Ошибка импутирования для {df['cryptocurrency'].iloc[0]}: {str(e)}")
+        logger.error(
+            f"Ошибка импутирования для {df['cryptocurrency'].iloc[0]}: {str(e)}"
+        )
 
     missing_after = df.isnull().sum()
-    logger.info(f"Пропущенные значения после обработки:\n{missing_after[missing_after > 0]}")
+    logger.info(
+        f"Пропущенные значения после обработки:\n{missing_after[missing_after > 0]}"
+    )
     logger.info(f"Время выполнения улучшения данных: {datetime.now() - start_time}")
     return df
 
@@ -123,8 +146,12 @@ def apply_technical_analysis(df):
     df_copy["high_price"] = pd.to_numeric(df_copy["high_price"], errors="coerce")
     df_copy["low_price"] = pd.to_numeric(df_copy["low_price"], errors="coerce")
 
-    logger.info("Проверка наличия столбцов для анализа: 'close_price', 'high_price', 'low_price'")
-    if not all(col in df_copy.columns for col in ["close_price", "high_price", "low_price"]):
+    logger.info(
+        "Проверка наличия столбцов для анализа: 'close_price', 'high_price', 'low_price'"
+    )
+    if not all(
+        col in df_copy.columns for col in ["close_price", "high_price", "low_price"]
+    ):
         logger.error("Отсутствуют необходимые столбцы для расчёта индикаторов.")
         return df_copy
 
@@ -132,8 +159,18 @@ def apply_technical_analysis(df):
         if "RSI" not in df_copy.columns:
             df_copy["RSI"] = RSIIndicator(df_copy["close_price"], window=14).rsi()
 
-        df_copy["CCI"] = CCIIndicator(df_copy["high_price"], df_copy["low_price"], df_copy["close_price"], window=14).cci()
-        atr = AverageTrueRange(df_copy["high_price"], df_copy["low_price"], df_copy["close_price"], window=14)
+        df_copy["CCI"] = CCIIndicator(
+            df_copy["high_price"],
+            df_copy["low_price"],
+            df_copy["close_price"],
+            window=14,
+        ).cci()
+        atr = AverageTrueRange(
+            df_copy["high_price"],
+            df_copy["low_price"],
+            df_copy["close_price"],
+            window=14,
+        )
         df_copy["atr"] = atr.average_true_range()
 
         bb = BollingerBands(df_copy["close_price"], window=20, window_dev=2)
@@ -146,18 +183,33 @@ def apply_technical_analysis(df):
         macd = MACD(df_copy["close_price"])
         df_copy["macd_diff"] = macd.macd_diff()
     except Exception as e:
-        logger.error(f"Ошибка при расчете индикаторов: {str(e)} для {df_copy['cryptocurrency'].iloc[0]}")
+        logger.error(
+            f"Ошибка при расчете индикаторов: {str(e)} для {df_copy['cryptocurrency'].iloc[0]}"
+        )
         return df_copy
 
     numerics_columns = [
-        "close_price", "high_price", "low_price", "SMA_50", "SMA_200", "RSI", "CCI", "atr", "bb_bbm", "bb_bbh", "bb_bbl", "macd_diff"
+        "close_price",
+        "high_price",
+        "low_price",
+        "SMA_50",
+        "SMA_200",
+        "RSI",
+        "CCI",
+        "atr",
+        "bb_bbm",
+        "bb_bbh",
+        "bb_bbl",
+        "macd_diff",
     ]
     numerics_columns = [col for col in numerics_columns if col in df_copy.columns]
 
     try:
         df_copy[numerics_columns] = imputer.fit_transform(df_copy[numerics_columns])
     except Exception as e:
-        logger.error(f"Ошибка импутирования индикаторов для {df_copy['cryptocurrency'].iloc[0]}: {str(e)}")
+        logger.error(
+            f"Ошибка импутирования индикаторов для {df_copy['cryptocurrency'].iloc[0]}: {str(e)}"
+        )
 
     df_copy["predicted_signal"] = 0
     df_copy.loc[df_copy["SMA_50"] > df_copy["SMA_200"], "predicted_signal"] = 1
@@ -182,7 +234,9 @@ def calculate_stochastic_oscillator(df, k_window=14, d_window=3):
     df.loc[:, "lowest_low"] = df["low_price"].rolling(window=k_window).min()
     df.loc[:, "highest_high"] = df["high_price"].rolling(window=k_window).max()
     df.loc[:, "stoch_k"] = (
-        100 * (df["close_price"] - df["lowest_low"]) / (df["highest_high"] - df["lowest_low"])
+        100
+        * (df["close_price"] - df["lowest_low"])
+        / (df["highest_high"] - df["lowest_low"])
     )
 
     df["stoch_d"] = df["stoch_k"].rolling(window=d_window).mean()

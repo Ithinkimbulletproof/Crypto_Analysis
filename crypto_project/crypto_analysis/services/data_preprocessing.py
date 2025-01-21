@@ -1,21 +1,36 @@
-import os
 import logging
 import pandas as pd
-from dotenv import load_dotenv
-from crypto_analysis.models import MarketData, PreprocessedData
-from datetime import datetime, timedelta, timezone
+from django.db import IntegrityError
+from crypto_analysis.models import IndicatorData, MarketData
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-load_dotenv()
 
 
-def fetch_data_from_database(crypto: str) -> list:
+def save_indicators_to_db(df: pd.DataFrame, crypto: str):
+    try:
+        for index, row in df.iterrows():
+            for column in df.columns:
+                if column != "cryptocurrency":
+                    indicator_data = IndicatorData(
+                        cryptocurrency=crypto,
+                        date=index,
+                        indicator_name=column,
+                        value=row[column],
+                    )
+                    indicator_data.save()
+    except IntegrityError as e:
+        logger.error(f"Ошибка при сохранении индикаторов в базу данных: {str(e)}")
+    except Exception as e:
+        logger.error(f"Неизвестная ошибка при сохранении в базу данных: {str(e)}")
+
+
+def fetch_data_from_database(crypto: str) -> pd.DataFrame:
     logger.info(f"Запрос данных для {crypto} из базы данных.")
     try:
         if not crypto:
             logger.warning("Пустое имя криптовалюты. Пропускаем.")
-            return []
+            return pd.DataFrame()
         data_all = (
             MarketData.objects.filter(cryptocurrency=crypto)
             .order_by("date")
@@ -24,186 +39,168 @@ def fetch_data_from_database(crypto: str) -> list:
             )
         )
         logger.info(
-            f"Получено {len(data_all)} записей для {crypto}. Пример записи: {data_all[:1]}"
+            f"Получено {len(data_all)} записей для {crypto}. Пример записи: {data_all[:1]}."
         )
         if not data_all:
             logger.warning(f"Нет данных для {crypto}. Пропускаем.")
-            return []
+            return pd.DataFrame()
         df = pd.DataFrame(
             data_all, columns=["date", "close", "high", "low", "cryptocurrency"]
         )
-        logger.info(f"DataFrame создан успешно. Пример первой записи: {df.head(1)}")
-        logger.info(f"Количество строк в DataFrame: {len(df)}")
-        return list(df.itertuples(index=False, name=None))
-    except Exception as e:
-        logger.error(f"Ошибка при запросе данных для {crypto}: {str(e)}")
-        return []
-
-
-def ensure_index(df: pd.DataFrame, index_col: str):
-    if index_col not in df.columns:
-        df.reset_index(inplace=True)
-
-
-def preprocess_data(
-    data_all: list, volatility_window: int = 30, k_window: int = 14
-) -> pd.DataFrame:
-    if not data_all:
-        logger.warning("Список данных пуст. Возвращается пустой DataFrame.")
-        return pd.DataFrame(columns=["date", "close", "high", "low", "cryptocurrency"])
-
-    try:
-        df = pd.DataFrame(
-            data_all, columns=["date", "close", "high", "low", "cryptocurrency"]
-        )
-        logger.info(f"DataFrame создан успешно. Пример первой записи: {df.head(1)}")
-
-        if len(df) < max(volatility_window, k_window):
-            logger.warning(
-                f"Недостаточно данных для расчётов. Возвращается DataFrame с {len(df)} строками."
-            )
-            return df
-
         df["date"] = pd.to_datetime(df["date"])
         df.set_index("date", inplace=True)
-
-        for col in ["close", "high", "low"]:
-            df[col] = df[col].interpolate(method="time").bfill().ffill()
-            logger.info(
-                f"{col.capitalize()} цена обработана. Пример первой записи: {df.head(1)}"
-            )
-
-        if len(df) >= 24:
-            df["price_change_24h"] = df["close"].pct_change(periods=24)
-        else:
-            df["price_change_24h"] = None
-
-        df["price_change_7d"] = df["close"].pct_change(periods=7 * 24)
-
-        rolling_windows = [30, 90, 180, 365]
-        for window in rolling_windows:
-            df[f"SMA_{window}"] = df["close"].rolling(window=window).mean()
-            df[f"volatility_{window}"] = df["close"].rolling(window=window).std()
-            logger.info(f"SMA и волатильность для {window} дней рассчитаны.")
-
-        df.dropna(inplace=True)
-        logger.info(
-            f"Пустые строки удалены. Пример первой записи после очистки: {df.head(1)}"
-        )
-
-        return df.reset_index()
+        return df
     except Exception as e:
-        logger.error(f"Ошибка при предобработке данных: {e}", exc_info=True)
-        return pd.DataFrame(columns=["date", "close", "high", "low", "cryptocurrency"])
+        logger.error(f"Ошибка при запросе данных для {crypto}: {str(e)}")
+        return pd.DataFrame()
 
 
-def split_data_by_period(df: pd.DataFrame, periods: list) -> dict:
-    logger.info(f"Разделение данных на периоды: {periods}")
+def price_change(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
     try:
-        ensure_index(df, "date")
-        now = datetime.now(timezone.utc)
-        split_data = {}
+        periods = [1, 7, 14, 30]
         for period in periods:
-            date_limit = now - timedelta(days=period)
-            filtered_df = df[df["date"] >= date_limit].copy()
-            split_data[period] = filtered_df
-            logger.info(f"Данные для {period} дней: {len(filtered_df)} записей.")
-        return split_data
+            df[f"price_change_{period}d"] = df["close"].pct_change(periods=period) * 100
+        save_indicators_to_db(df, crypto)
+        return df
     except Exception as e:
-        logger.error(f"Ошибка при разделении данных на периоды: {e}", exc_info=True)
-        return {}
+        logger.error(f"Ошибка при расчете процентного изменения: {e}")
+        return df
 
 
-def save_to_database(df: pd.DataFrame, cryptocurrency: str, period: int):
+def sma(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
     try:
-        logger.info(
-            f"Сохранение данных для {cryptocurrency} ({period} дней) в базу данных."
-        )
-
-        df = df.copy()
-        df["cryptocurrency"] = cryptocurrency
-        df["period"] = period
-
-        preprocessed_data_list = [
-            PreprocessedData(
-                date=row["date"],
-                close_price=row["close"],
-                high_price=row["high"],
-                low_price=row["low"],
-                cryptocurrency=row["cryptocurrency"],
-                period=row["period"],
-                price_change_24h=row.get("price_change_24h", None),
-                SMA_30=row.get("SMA_30", None),
-                volatility_30=row.get("volatility_30", None),
-                SMA_90=row.get("SMA_90", None),
-                volatility_90=row.get("volatility_90", None),
-                SMA_180=row.get("SMA_180", None),
-                volatility_180=row.get("volatility_180", None),
-                SMA_365=row.get("SMA_365", None),
-                volatility_365=row.get("volatility_365", None),
-            )
-            for _, row in df.iterrows()
-        ]
-
-        PreprocessedData.objects.bulk_create(preprocessed_data_list)
-
-        logger.info(
-            f"Данные успешно сохранены для {cryptocurrency} ({period} дней) в базу данных."
-        )
+        periods = [7, 14, 30, 50, 200]
+        for period in periods:
+            df[f"SMA_{period}"] = df["close"].rolling(window=period).mean()
+        save_indicators_to_db(df, crypto)
+        return df
     except Exception as e:
-        logger.error(
-            f"Ошибка при сохранении данных для {cryptocurrency}: {e}", exc_info=True
-        )
-        raise
+        logger.error(f"Ошибка при расчете скользящих средних: {e}")
+        return df
 
 
-def process_and_export_data(
-    volatility_window: int = 30, periods: list = [30, 90, 180, 365]
-):
-    logger.info("Запуск процесса обработки и экспорта данных.")
-    cryptocurrencies = os.getenv("CRYPTOPAIRS", "").split(",")
-    if not cryptocurrencies:
-        logger.error("Переменная CRYPTOPAIRS не установлена или пуста.")
-        return
+def volatility(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
+    try:
+        periods = [7, 14, 30, 60, 180]
+        for period in periods:
+            df[f"volatility_{period}d"] = df["close"].rolling(window=period).std()
+        save_indicators_to_db(df, crypto)
+        return df
+    except Exception as e:
+        logger.error(f"Ошибка при расчете волатильности: {e}")
+        return df
 
-    all_cryptos_data = []
-    processed_cryptos_count = 0
 
-    for crypto in cryptocurrencies:
-        try:
-            logger.info(f"Обработка данных для {crypto}")
-            data_all = fetch_data_from_database(crypto)
-            if not data_all:
-                logger.info(f"Нет данных для {crypto}, пропускаем.")
-                continue
+def rsi(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
+    try:
+        periods = [7, 14, 30, 90]
+        for period in periods:
+            delta = df["close"].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+            rs = gain / loss
+            df[f"RSI_{period}d"] = 100 - (100 / (1 + rs))
+        save_indicators_to_db(df, crypto)
+        return df
+    except Exception as e:
+        logger.error(f"Ошибка при расчете RSI: {e}")
+        return df
 
-            df = preprocess_data(data_all, volatility_window)
-            if df.empty:
-                logger.info(f"Предобработанные данные для {crypto} пустые, пропускаем.")
-                continue
 
-            split_data = split_data_by_period(df, periods)
-            for period, data in split_data.items():
-                save_to_database(data, crypto, period)
-
-            all_cryptos_data.append(
-                df[["date", "close", "high", "low", "cryptocurrency"]]
+def cci(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
+    try:
+        periods = [7, 14, 30]
+        for period in periods:
+            tp = (df["high"] + df["low"] + df["close"]) / 3
+            sma_tp = tp.rolling(window=period).mean()
+            mean_deviation = tp.rolling(window=period).apply(
+                lambda x: pd.Series(x).mad()
             )
-            processed_cryptos_count += 1
-        except Exception as e:
-            logger.error(f"Ошибка обработки {crypto}: {str(e)}")
-
-    if all_cryptos_data:
-        market_df = pd.concat(all_cryptos_data, ignore_index=True)
-        save_to_database(market_df, "market", "all_periods")
-
-    log_overall_stats(processed_cryptos_count)
+            df[f"CCI_{period}d"] = (tp - sma_tp) / (0.015 * mean_deviation)
+        save_indicators_to_db(df, crypto)
+        return df
+    except Exception as e:
+        logger.error(f"Ошибка при расчете CCI: {e}")
+        return df
 
 
-def log_overall_stats(processed_cryptos_count: int):
-    logger.info("Обработка завершена.")
-    logger.info(f"Обработано криптовалют: {processed_cryptos_count}")
+def atr(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
+    try:
+        periods = [14, 30, 60]
+        for period in periods:
+            high_low = df["high"] - df["low"]
+            high_close = (df["high"] - df["close"].shift()).abs()
+            low_close = (df["low"] - df["close"].shift()).abs()
+            tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            df[f"ATR_{period}"] = tr.rolling(window=period).mean()
+        save_indicators_to_db(df, crypto)
+        return df
+    except Exception as e:
+        logger.error(f"Ошибка при расчете ATR: {e}")
+        return df
 
 
-if __name__ == "__main__":
-    process_and_export_data(volatility_window=30)
+def bollinger_bands(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
+    try:
+        periods = [14, 30, 50, 200]
+        for period in periods:
+            sma = df["close"].rolling(window=period).mean()
+            std = df["close"].rolling(window=period).std()
+            upper_band = sma + (std * 2)
+            lower_band = sma - (std * 2)
+            df[f"BB_upper_{period}"] = upper_band
+            df[f"BB_lower_{period}"] = lower_band
+        save_indicators_to_db(df, crypto)
+        return df
+    except Exception as e:
+        logger.error(f"Ошибка при расчете Bollinger Bands: {e}")
+        return df
+
+
+def macd(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
+    try:
+        ema_12 = df["close"].ewm(span=12, adjust=False).mean()
+        ema_26 = df["close"].ewm(span=26, adjust=False).mean()
+        macd_line = ema_12 - ema_26
+
+        signal_line = macd_line.ewm(span=9, adjust=False).mean()
+
+        df["MACD_12_26"] = macd_line
+        df["MACD_signal_9"] = signal_line
+        save_indicators_to_db(df, crypto)
+        return df
+    except Exception as e:
+        logger.error(f"Ошибка при расчете MACD: {e}")
+        return df
+
+
+def stochastic_oscillator(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
+    try:
+        periods = [7, 14, 30]
+
+        for period in periods:
+            low_min = df["low"].rolling(window=period).min()
+            high_max = df["high"].rolling(window=period).max()
+            df[f"Stochastic_{period}"] = (
+                100 * (df["close"] - low_min) / (high_max - low_min)
+            )
+
+        save_indicators_to_db(df, crypto)
+        return df
+    except Exception as e:
+        logger.error(f"Ошибка при расчете стохастического осциллятора: {e}")
+        return df
+
+
+def lag_macd(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
+    try:
+        periods = [12, 26, 9]
+
+        for period in periods:
+            df[f"Lag_{period}"] = df["close"].shift(periods=period)
+
+        save_indicators_to_db(df, crypto)
+        return df
+    except Exception as e:
+        logger.error(f"Ошибка при расчете лагов: {e}")
+        return df
