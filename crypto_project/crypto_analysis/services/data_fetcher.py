@@ -1,15 +1,10 @@
-import os
 import time
 import ccxt
 import logging
 import statistics
-from dotenv import load_dotenv
 from django.db.models import Max
 from datetime import datetime, timezone
 from crypto_analysis.models import MarketData
-
-
-load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,48 +34,56 @@ def get_since(last_date, default_start_date):
     return int(last_date.timestamp() * 1000) if last_date else default_start_date
 
 
-def fetch_data():
+def fetch_data(symbols):
     exchanges = [ccxt.binance(), ccxt.kraken(), ccxt.okx()]
-    symbols = os.getenv("CRYPTOPAIRS").split(",")
     timeframe = "1h"
     default_start_date = get_default_start_date()
-    logger.info(f"Получение данных для криптовалютных пар: {symbols}")
-    logger.info(f"Стартовый timestamp для данных: {default_start_date}")
+    logger.info(f"[{datetime.now()}] Получение данных для криптовалютных пар: {symbols}")
+    logger.info(f"[{datetime.now()}] Стартовый timestamp для данных: {default_start_date}")
+
     for exchange in exchanges:
-        logger.info(f"Начало обработки биржи: {exchange.id}")
+        logger.info(f"[{datetime.now()}] Начало обработки биржи: {exchange.id}")
         try:
-            process_exchange(exchange, symbols, default_start_date, timeframe)
-            logger.info(f"Завершена обработка биржи: {exchange.id}")
+            process_exchange_for_all_symbols(
+                exchange, symbols, default_start_date, timeframe
+            )
+            logger.info(f"[{datetime.now()}] Завершена обработка биржи: {exchange.id}")
         except Exception as e:
-            logger.error(f"Ошибка работы с биржей {exchange.id}: {str(e)}")
-    logger.info("Загрузка данных завершена")
+            logger.error(f"[{datetime.now()}] Ошибка работы с биржей {exchange.id}: {str(e)}")
+    logger.info(f"[{datetime.now()}] Загрузка данных завершена")
 
 
-def process_exchange(exchange, symbols, default_start_date, timeframe):
+def process_exchange_for_all_symbols(exchange, symbols, default_start_date, timeframe):
     try:
+        logger.info(f"[{datetime.now()}] Загрузка рынков для биржи {exchange.id}")
         exchange.load_markets()
+        logger.info(f"[{datetime.now()}] Рынки успешно загружены для биржи {exchange.id}")
         for symbol in symbols:
-            logger.info(f"Обработка пары {symbol} на {exchange.id}")
+            logger.info(f"[{datetime.now()}] Обработка пары {symbol} на {exchange.id}")
             if symbol in exchange.markets:
                 last_date = get_last_date(symbol, exchange)
                 since = get_since(last_date, default_start_date)
+                logger.info(f"[{datetime.now()}] Начинаю загрузку данных для {symbol} с {since}")
                 fetch_and_store_data(exchange, symbol, since, timeframe)
             else:
-                logger.warning(f"Пара {symbol} не найдена на {exchange.id}")
+                logger.warning(f"[{datetime.now()}] Пара {symbol} не найдена на {exchange.id}")
     except Exception as e:
-        logger.error(f"Ошибка при обработке биржи {exchange.id}: {str(e)}")
+        logger.error(f"[{datetime.now()}] Ошибка при обработке биржи {exchange.id}: {str(e)}")
 
 
 def fetch_and_store_data(exchange, symbol, since, timeframe):
     retries = 3
     retry_delay = 60
     all_data = []
+    logger.info(f"[{datetime.now()}] Начало загрузки данных для {symbol} на {exchange.id}")
     while retries > 0:
         try:
+            logger.debug(f"[{datetime.now()}] Запрос данных для {symbol} с {since} на {exchange.id}")
             data = exchange.fetch_ohlcv(symbol, timeframe, since=since)
             if not data:
-                logger.info(f"Данные завершены для {symbol} на {exchange.id}")
+                logger.info(f"[{datetime.now()}] Нет данных для {symbol} на {exchange.id}. Завершаем.")
                 break
+            logger.debug(f"[{datetime.now()}] Загружено {len(data)} записей для {symbol} на {exchange.id}")
             for record in data:
                 timestamp = record[0]
                 all_data.append(
@@ -98,19 +101,22 @@ def fetch_and_store_data(exchange, symbol, since, timeframe):
             since = data[-1][0] + 1
         except ccxt.NetworkError as e:
             retries -= 1
-            logger.warning(f"Ошибка сети: {str(e)}. Осталось попыток: {retries}")
+            logger.warning(f"[{datetime.now()}] Ошибка сети: {str(e)}. Осталось попыток: {retries}")
             if retries == 0:
-                logger.error(f"Попытки исчерпаны для {symbol} на {exchange.id}")
+                logger.error(f"[{datetime.now()}] Попытки исчерпаны для {symbol} на {exchange.id}")
             else:
                 time.sleep(retry_delay)
         except Exception as e:
-            logger.error(f"Ошибка загрузки: {str(e)}")
+            logger.error(f"[{datetime.now()}] Ошибка загрузки: {str(e)} для {symbol} на {exchange.id}")
             break
+    logger.info(f"[{datetime.now()}] Сохранение данных для {symbol} на {exchange.id}")
     store_data_bulk(all_data, exchange.id)
+    logger.info(f"[{datetime.now()}] Данные успешно сохранены для {symbol} на {exchange.id}")
 
 
 def store_data_bulk(all_data, exchange_id):
     if not all_data:
+        logger.info(f"[{datetime.now()}] Нет данных для сохранения для {exchange_id}")
         return
 
     data_by_symbol_date = {}
@@ -144,6 +150,8 @@ def store_data_bulk(all_data, exchange_id):
         data_by_symbol_date[(symbol, date)]["volumes"].append(volume)
         data_by_symbol_date[(symbol, date)]["exchange_ids"].add(exchange_id)
 
+    logger.info(f"[{datetime.now()}] Начало сохранения данных в базу для {exchange_id}")
+
     market_data_objects = []
     for (symbol, date), data in data_by_symbol_date.items():
         avg_open_price = statistics.mean(data["open_prices"])
@@ -165,6 +173,7 @@ def store_data_bulk(all_data, exchange_id):
             existing_record.close_price = avg_close_price
             existing_record.volume = avg_volume
             existing_record.save()
+            logger.debug(f"[{datetime.now()}] Обновление записи для {symbol} на {date}")
         else:
             market_data_objects.append(
                 MarketData(
@@ -180,4 +189,7 @@ def store_data_bulk(all_data, exchange_id):
             )
 
     if market_data_objects:
+        logger.debug(f"[{datetime.now()}] Добавление {len(market_data_objects)} новых записей")
         MarketData.objects.bulk_create(market_data_objects, batch_size=1000)
+
+    logger.info(f"[{datetime.now()}] Завершено сохранение данных для {exchange_id}")

@@ -7,7 +7,7 @@ import lightgbm as lgb
 from dotenv import load_dotenv
 from statsmodels.tsa.arima.model import ARIMA
 from crypto_analysis.models import (
-    TechAnalysed,
+    IndicatorData,
     ShortTermCryptoPrediction,
     LongTermCryptoPrediction,
 )
@@ -34,7 +34,7 @@ def save_predictions(predictions, file_name="predictions.csv"):
 
 
 def load_processed_data(cryptocurrency=None, period=None):
-    query = TechAnalysed.objects.all()
+    query = IndicatorData.objects.all()
     if cryptocurrency:
         query = query.filter(cryptocurrency=cryptocurrency)
     if period:

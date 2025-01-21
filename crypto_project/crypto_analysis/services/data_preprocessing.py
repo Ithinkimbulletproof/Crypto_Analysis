@@ -1,14 +1,21 @@
+import os
 import logging
 import pandas as pd
+from dotenv import load_dotenv
 from django.db import IntegrityError
 from crypto_analysis.models import IndicatorData, MarketData
 
-logging.basicConfig(level=logging.INFO)
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
 def save_indicators_to_db(df: pd.DataFrame, crypto: str):
     try:
+        indicator_data_list = []
         for index, row in df.iterrows():
             for column in df.columns:
                 if column != "cryptocurrency":
@@ -18,11 +25,23 @@ def save_indicators_to_db(df: pd.DataFrame, crypto: str):
                         indicator_name=column,
                         value=row[column],
                     )
-                    indicator_data.save()
+
+                    IndicatorData.objects.update_or_create(
+                        cryptocurrency=indicator_data.cryptocurrency,
+                        date=indicator_data.date,
+                        indicator_name=indicator_data.indicator_name,
+                        defaults={"value": indicator_data.value},
+                    )
+
+        logger.info(
+            f"Успешно сохранено {len(indicator_data_list)} индикаторов для {crypto}."
+        )
     except IntegrityError as e:
-        logger.error(f"Ошибка при сохранении индикаторов в базу данных: {str(e)}")
+        logger.error(
+            f"Ошибка при сохранении индикаторов в базу данных для {crypto}: {e}"
+        )
     except Exception as e:
-        logger.error(f"Неизвестная ошибка при сохранении в базу данных: {str(e)}")
+        logger.error(f"Неизвестная ошибка при сохранении данных для {crypto}: {e}")
 
 
 def fetch_data_from_database(crypto: str) -> pd.DataFrame:
@@ -39,7 +58,7 @@ def fetch_data_from_database(crypto: str) -> pd.DataFrame:
             )
         )
         logger.info(
-            f"Получено {len(data_all)} записей для {crypto}. Пример записи: {data_all[:1]}."
+            f"Получено {len(data_all)} записей для {crypto}. Пример: {data_all[:1]}."
         )
         if not data_all:
             logger.warning(f"Нет данных для {crypto}. Пропускаем.")
@@ -49,9 +68,10 @@ def fetch_data_from_database(crypto: str) -> pd.DataFrame:
         )
         df["date"] = pd.to_datetime(df["date"])
         df.set_index("date", inplace=True)
+        logger.debug(f"Данные для {crypto} успешно преобразованы в DataFrame.")
         return df
     except Exception as e:
-        logger.error(f"Ошибка при запросе данных для {crypto}: {str(e)}")
+        logger.error(f"Ошибка при запросе данных для {crypto}: {e}")
         return pd.DataFrame()
 
 
@@ -204,3 +224,63 @@ def lag_macd(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
     except Exception as e:
         logger.error(f"Ошибка при расчете лагов: {e}")
         return df
+
+
+def process_all_indicators(cryptos: list):
+    logger.info("Начало обработки индикаторов для списка криптовалют.")
+    try:
+        for crypto in cryptos:
+            logger.info(f"Запуск обработки данных для {crypto}")
+            df = fetch_data_from_database(crypto)
+            if df.empty:
+                logger.warning(f"Данные для {crypto} не найдены. Пропускаю.")
+                continue
+
+            try:
+                logger.info(f"Расчет изменения цены для {crypto}.")
+                df = price_change(df, crypto)
+
+                logger.info(f"Расчет SMA для {crypto}.")
+                df = sma(df, crypto)
+
+                logger.info(f"Расчет волатильности для {crypto}.")
+                df = volatility(df, crypto)
+
+                logger.info(f"Расчет RSI для {crypto}.")
+                df = rsi(df, crypto)
+
+                logger.info(f"Расчет CCI для {crypto}.")
+                df = cci(df, crypto)
+
+                logger.info(f"Расчет ATR для {crypto}.")
+                df = atr(df, crypto)
+
+                logger.info(f"Расчет полос Боллинджера для {crypto}.")
+                df = bollinger_bands(df, crypto)
+
+                logger.info(f"Расчет MACD для {crypto}.")
+                df = macd(df, crypto)
+
+                logger.info(f"Расчет стохастического осциллятора для {crypto}.")
+                df = stochastic_oscillator(df, crypto)
+
+                logger.info(f"Расчет MACD с лагом для {crypto}.")
+                df = lag_macd(df, crypto)
+
+                logger.info(f"Все индикаторы для {crypto} успешно рассчитаны.")
+            except Exception as inner_e:
+                logger.error(f"Ошибка при обработке индикаторов для {crypto}: {inner_e}")
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке всех индикаторов: {e}")
+    logger.info("Обработка всех индикаторов завершена.")
+
+
+if __name__ == "__main__":
+    load_dotenv()
+    cryptos_list = os.getenv("CRYPTOPAIRS", "").split(",")
+    if cryptos_list:
+        logger.info("Начало обработки для криптовалют: " + ", ".join(cryptos_list))
+        process_all_indicators(cryptos_list)
+    else:
+        logger.warning("Список криптовалют пуст. Завершаю выполнение.")

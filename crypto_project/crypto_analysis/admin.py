@@ -1,14 +1,42 @@
 from django.contrib import admin
 from .models import (
-    MarketData,
     ShortTermCryptoPrediction,
     LongTermCryptoPrediction,
-    PreprocessedData,
-    TechAnalysed,
+    MarketData,
+    IndicatorData,
 )
 
 
-@admin.register(MarketData)
+class ShortTermCryptoPredictionAdmin(admin.ModelAdmin):
+    list_display = (
+        "cryptocurrency_pair",
+        "prediction_date",
+        "predicted_price_change",
+        "predicted_close",
+        "model_type",
+        "confidence_level",
+    )
+    list_filter = ("cryptocurrency_pair", "prediction_date", "model_type")
+    search_fields = ("cryptocurrency_pair",)
+    date_hierarchy = "prediction_date"
+    ordering = ("-prediction_date",)
+
+
+class LongTermCryptoPredictionAdmin(admin.ModelAdmin):
+    list_display = (
+        "cryptocurrency_pair",
+        "prediction_date",
+        "predicted_price_change",
+        "predicted_close",
+        "model_type",
+        "confidence_level",
+    )
+    list_filter = ("cryptocurrency_pair", "prediction_date", "model_type")
+    search_fields = ("cryptocurrency_pair",)
+    date_hierarchy = "prediction_date"
+    ordering = ("-prediction_date",)
+
+
 class MarketDataAdmin(admin.ModelAdmin):
     list_display = (
         "cryptocurrency",
@@ -20,85 +48,21 @@ class MarketDataAdmin(admin.ModelAdmin):
         "volume",
         "exchange",
     )
-    list_filter = ("cryptocurrency", "exchange", "date")
+    list_filter = ("cryptocurrency", "date", "exchange")
     search_fields = ("cryptocurrency", "exchange")
     date_hierarchy = "date"
     ordering = ("-date",)
 
 
-@admin.register(ShortTermCryptoPrediction)
-class ShortTermCryptoPredictionAdmin(admin.ModelAdmin):
-    list_display = (
-        "cryptocurrency_pair",
-        "prediction_date",
-        "predicted_price_change",
-        "predicted_close",
-        "model_type",
-        "confidence_level",
-    )
-    list_filter = ("cryptocurrency_pair", "model_type", "prediction_date")
-    search_fields = ("cryptocurrency_pair", "model_type")
-    date_hierarchy = "prediction_date"
-    ordering = ("-prediction_date",)
-
-
-@admin.register(LongTermCryptoPrediction)
-class LongTermCryptoPredictionAdmin(admin.ModelAdmin):
-    list_display = (
-        "cryptocurrency_pair",
-        "prediction_date",
-        "predicted_price_change",
-        "predicted_close",
-        "model_type",
-        "confidence_level",
-    )
-    list_filter = ("cryptocurrency_pair", "model_type", "prediction_date")
-    search_fields = ("cryptocurrency_pair", "model_type")
-    date_hierarchy = "prediction_date"
-    ordering = ("-prediction_date",)
-
-
-@admin.register(PreprocessedData)
-class PreprocessedDataAdmin(admin.ModelAdmin):
-    list_display = (
-        "cryptocurrency",
-        "date",
-        "close_price",
-        "high_price",
-        "low_price",
-        "price_change_24h",
-        "SMA_30",
-        "volatility_30",
-        "SMA_90",
-        "volatility_90",
-        "SMA_180",
-        "volatility_180",
-    )
-    list_filter = ("cryptocurrency", "period", "date")
-    search_fields = ("cryptocurrency", "period")
+class IndicatorDataAdmin(admin.ModelAdmin):
+    list_display = ("cryptocurrency", "date", "indicator_name", "value")
+    list_filter = ("cryptocurrency", "indicator_name")
+    search_fields = ("cryptocurrency", "indicator_name")
     date_hierarchy = "date"
     ordering = ("-date",)
 
 
-@admin.register(TechAnalysed)
-class TechAnalysedAdmin(admin.ModelAdmin):
-    list_display = (
-        "cryptocurrency",
-        "date",
-        "close_price",
-        "high_price",
-        "low_price",
-        "price_change_24h",
-        "SMA_30",
-        "volatility_30",
-        "SMA_90",
-        "volatility_90",
-        "SMA_180",
-        "volatility_180",
-        "predicted_signal",
-        "target",
-    )
-    list_filter = ("cryptocurrency", "period", "date")
-    search_fields = ("cryptocurrency", "period")
-    date_hierarchy = "date"
-    ordering = ("-date",)
+admin.site.register(ShortTermCryptoPrediction, ShortTermCryptoPredictionAdmin)
+admin.site.register(LongTermCryptoPrediction, LongTermCryptoPredictionAdmin)
+admin.site.register(MarketData, MarketDataAdmin)
+admin.site.register(IndicatorData, IndicatorDataAdmin)
