@@ -1,6 +1,7 @@
 import os
 import logging
 import pandas as pd
+from tqdm import tqdm
 from dotenv import load_dotenv
 from django.db import IntegrityError
 from crypto_analysis.models import IndicatorData, MarketData
@@ -78,8 +79,10 @@ def fetch_data_from_database(crypto: str) -> pd.DataFrame:
 def price_change(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
     try:
         periods = [1, 7, 14, 30]
-        for period in periods:
+
+        for period in tqdm(periods, desc=f"Обработка {crypto}", unit="период"):
             df[f"price_change_{period}d"] = df["close"].pct_change(periods=period) * 100
+
         save_indicators_to_db(df, crypto)
         return df
     except Exception as e:
