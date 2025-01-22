@@ -28,7 +28,9 @@ def save_indicators_to_db(df: pd.DataFrame, crypto: str):
 
         logger.info(f"Индикаторы для {crypto} успешно сохранены или обновлены.")
     except IntegrityError as e:
-        logger.error(f"Ошибка при сохранении индикаторов в базу данных для {crypto}: {e}")
+        logger.error(
+            f"Ошибка при сохранении индикаторов в базу данных для {crypto}: {e}"
+        )
     except Exception as e:
         logger.error(f"Неизвестная ошибка при сохранении данных для {crypto}: {e}")
 
@@ -58,7 +60,14 @@ def get_data_for_all_cryptos():
                 logger.warning(f"Нет данных для {crypto}. Пропускаю.")
                 continue
             df = pd.DataFrame(
-                data_all, columns=["date", "close_price", "high_price", "low_price", "cryptocurrency"]
+                data_all,
+                columns=[
+                    "date",
+                    "close_price",
+                    "high_price",
+                    "low_price",
+                    "cryptocurrency",
+                ],
             )
             df["date"] = pd.to_datetime(df["date"])
             df.set_index("date", inplace=True)
@@ -83,22 +92,32 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
             "bollinger_bands": [14, 30, 50, 200],
             "macd": None,
             "stochastic_oscillator": [7, 14, 30],
-            "lag_macd": [12, 26, 9]
+            "lag_macd": [12, 26, 9],
         }
 
         for indicator, periods in indicators.items():
             if indicator == "price_change":
                 for period in periods:
-                    df[f"price_change_{period}d"] = df["close_price"].pct_change(periods=period) * 100
-                logger.info(f"Расчёт индикатора price_change для периодов {periods} завершён.")
+                    df[f"price_change_{period}d"] = (
+                        df["close_price"].pct_change(periods=period) * 100
+                    )
+                logger.info(
+                    f"Расчёт индикатора price_change для периодов {periods} завершён."
+                )
             elif indicator == "sma":
                 for period in periods:
-                    df[f"SMA_{period}"] = df["close_price"].rolling(window=period).mean()
+                    df[f"SMA_{period}"] = (
+                        df["close_price"].rolling(window=period).mean()
+                    )
                 logger.info(f"Расчёт индикатора sma для периодов {periods} завершён.")
             elif indicator == "volatility":
                 for period in periods:
-                    df[f"volatility_{period}d"] = df["close_price"].rolling(window=period).std()
-                logger.info(f"Расчёт индикатора volatility для периодов {periods} завершён.")
+                    df[f"volatility_{period}d"] = (
+                        df["close_price"].rolling(window=period).std()
+                    )
+                logger.info(
+                    f"Расчёт индикатора volatility для периодов {periods} завершён."
+                )
             elif indicator == "rsi":
                 for period in periods:
                     delta = df["close_price"].diff()
@@ -111,7 +130,9 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                 for period in periods:
                     tp = (df["high_price"] + df["low_price"] + df["close_price"]) / 3
                     sma_tp = tp.rolling(window=period).mean()
-                    mean_deviation = tp.rolling(window=period).apply(lambda x: (x - x.mean()).abs().mean(), raw=False)
+                    mean_deviation = tp.rolling(window=period).apply(
+                        lambda x: (x - x.mean()).abs().mean(), raw=False
+                    )
                     df[f"CCI_{period}d"] = (tp - sma_tp) / (0.015 * mean_deviation)
                 logger.info(f"Расчёт индикатора cci для периодов {periods} завершён.")
             elif indicator == "atr":
@@ -119,7 +140,9 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                     high_low = df["high_price"] - df["low_price"]
                     high_close = (df["high_price"] - df["close_price"].shift()).abs()
                     low_close = (df["low_price"] - df["close_price"].shift()).abs()
-                    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+                    tr = pd.concat([high_low, high_close, low_close], axis=1).max(
+                        axis=1
+                    )
                     df[f"ATR_{period}"] = tr.rolling(window=period).mean()
                 logger.info(f"Расчёт индикатора atr для периодов {periods} завершён.")
             elif indicator == "bollinger_bands":
@@ -130,7 +153,9 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                     lower_band = sma - (std * 2)
                     df[f"BB_upper_{period}"] = upper_band
                     df[f"BB_lower_{period}"] = lower_band
-                logger.info(f"Расчёт индикатора bollinger_bands для периодов {periods} завершён.")
+                logger.info(
+                    f"Расчёт индикатора bollinger_bands для периодов {periods} завершён."
+                )
             elif indicator == "macd":
                 ema_12 = df["close_price"].ewm(span=12, adjust=False).mean()
                 ema_26 = df["close_price"].ewm(span=26, adjust=False).mean()
@@ -143,12 +168,18 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                 for period in periods:
                     low_min = df["low_price"].rolling(window=period).min()
                     high_max = df["high_price"].rolling(window=period).max()
-                    df[f"Stochastic_{period}"] = 100 * (df["close_price"] - low_min) / (high_max - low_min)
-                logger.info(f"Расчёт индикатора stochastic_oscillator для периодов {periods} завершён.")
+                    df[f"Stochastic_{period}"] = (
+                        100 * (df["close_price"] - low_min) / (high_max - low_min)
+                    )
+                logger.info(
+                    f"Расчёт индикатора stochastic_oscillator для периодов {periods} завершён."
+                )
             elif indicator == "lag_macd":
                 for period in periods:
                     df[f"Lag_{period}"] = df["close_price"].shift(periods=period)
-                logger.info(f"Расчёт индикатора lag_macd для периодов {periods} завершён.")
+                logger.info(
+                    f"Расчёт индикатора lag_macd для периодов {periods} завершён."
+                )
 
         save_indicators_to_db(df, crypto)
         logger.info(f"Данные для криптовалюты {crypto} сохранены в базу данных.")

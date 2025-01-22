@@ -7,7 +7,9 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Получает данные с бирж, сохраняет их в базе данных и рассчитывает индикаторы"
+    help = (
+        "Получает данные с бирж, сохраняет их в базе данных и рассчитывает индикаторы"
+    )
 
     def handle(self, *args, **kwargs):
         try:
@@ -17,7 +19,9 @@ class Command(BaseCommand):
 
             self.stdout.write(self.style.SUCCESS("Запуск обработки индикаторов..."))
             process_all_indicators()
-            self.stdout.write(self.style.SUCCESS("Все индикаторы успешно рассчитаны и сохранены"))
+            self.stdout.write(
+                self.style.SUCCESS("Все индикаторы успешно рассчитаны и сохранены")
+            )
         except Exception as e:
             logger.error(f"Ошибка при выполнении команды: {str(e)}")
             self.stdout.write(self.style.ERROR(f"Ошибка: {str(e)}"))

@@ -4,8 +4,8 @@ import ccxt
 import logging
 from dotenv import load_dotenv
 from django.db.models import Max
-from datetime import datetime, timezone, timedelta
 from crypto_analysis.models import MarketData
+from datetime import datetime, timezone, timedelta
 
 
 load_dotenv()

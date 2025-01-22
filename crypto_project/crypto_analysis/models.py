@@ -57,9 +57,9 @@ class IndicatorData(models.Model):
     class Meta:
         unique_together = ("cryptocurrency", "date", "indicator_name")
         indexes = [
-            models.Index(fields=['cryptocurrency', 'date']),
-            models.Index(fields=['cryptocurrency', 'indicator_name']),
-            models.Index(fields=['date', 'indicator_name']),
+            models.Index(fields=["cryptocurrency", "date"]),
+            models.Index(fields=["cryptocurrency", "indicator_name"]),
+            models.Index(fields=["date", "indicator_name"]),
         ]
 
     def __str__(self):
