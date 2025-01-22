@@ -1,6 +1,5 @@
 import logging
 import pandas as pd
-from datetime import datetime
 from dotenv import load_dotenv
 from django.utils import timezone
 from django.db import IntegrityError
