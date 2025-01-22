@@ -44,8 +44,9 @@ def short_term_forecasting(data):
         "CCI_14d",
         "ATR_14",
         "ATR_30",
-        "stochastic_7d",
-        "stochastic_14d",
+        "Stochastic_7",
+        "Stochastic_14",
+        "MACD_12_26",
         "MACD_signal_9",
     ]
     data = data[["cryptocurrency", "date"] + required_indicators].dropna()
@@ -90,6 +91,8 @@ def long_term_forecasting(data):
         "ATR_60",
         "BB_upper_30d",
         "BB_lower_30d",
+        "Stochastic_30"
+        "MACD_12_26",
         "MACD_signal_9",
     ]
     data = data[["cryptocurrency", "date"] + required_indicators].dropna()
@@ -180,8 +183,8 @@ def run_forecasting():
         "CCI_14d",
         "ATR_14",
         "ATR_30",
-        "stochastic_7d",
-        "stochastic_14d",
+        "Stochastic_7",
+        "Stochastic_14",
         "MACD_12_26",
         "MACD_signal_9",
     ]
@@ -205,6 +208,7 @@ def run_forecasting():
         "ATR_60",
         "BB_upper_30d",
         "BB_lower_30d",
+        "Stochastic_30"
         "MACD_12_26",
         "MACD_signal_9",
     ]
