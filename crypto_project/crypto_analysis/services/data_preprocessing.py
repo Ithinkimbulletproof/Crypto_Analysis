@@ -14,30 +14,21 @@ logger = logging.getLogger(__name__)
 
 def save_indicators_to_db(df: pd.DataFrame, crypto: str):
     try:
-        indicator_data_list = []
         for index, row in df.iterrows():
             for column in df.columns:
                 if column != "cryptocurrency":
-                    indicator_data = IndicatorData(
+                    indicator_data, created = IndicatorData.objects.update_or_create(
                         cryptocurrency=crypto,
                         date=index,
                         indicator_name=column,
-                        value=row[column],
+                        defaults={"value": row[column]},
                     )
+                    action = "обновлён" if not created else "создан"
+                    logger.debug(f"Индикатор {column} для {crypto} {action}.")
 
-                    indicator_data_list.append(indicator_data)
-
-        if indicator_data_list:
-            IndicatorData.objects.bulk_create(
-                indicator_data_list, ignore_conflicts=True
-            )
-            logger.info(
-                f"Успешно сохранено {len(indicator_data_list)} индикаторов для {crypto}."
-            )
+        logger.info(f"Индикаторы для {crypto} успешно сохранены или обновлены.")
     except IntegrityError as e:
-        logger.error(
-            f"Ошибка при сохранении индикаторов в базу данных для {crypto}: {e}"
-        )
+        logger.error(f"Ошибка при сохранении индикаторов в базу данных для {crypto}: {e}")
     except Exception as e:
         logger.error(f"Неизвестная ошибка при сохранении данных для {crypto}: {e}")
 

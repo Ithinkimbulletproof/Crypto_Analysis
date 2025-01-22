@@ -4,7 +4,7 @@ import ccxt
 import logging
 from dotenv import load_dotenv
 from django.db.models import Max
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from crypto_analysis.models import MarketData
 
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_default_start_date():
-    start_date = datetime(2021, 1, 1)
+    start_date = datetime.now() - timedelta(days=220)
     return int(start_date.timestamp() * 1000)
 
 
