@@ -1,6 +1,8 @@
 import logging
 import pandas as pd
+from datetime import datetime
 from dotenv import load_dotenv
+from django.utils import timezone
 from django.db import IntegrityError
 from crypto_analysis.models import IndicatorData, MarketData
 
@@ -14,19 +16,21 @@ logger = logging.getLogger(__name__)
 
 def save_indicators_to_db(df: pd.DataFrame, crypto: str):
     try:
+        today = timezone.now()
+
         for index, row in df.iterrows():
             for column in df.columns:
                 if column != "cryptocurrency":
                     indicator_data, created = IndicatorData.objects.update_or_create(
                         cryptocurrency=crypto,
-                        date=index,
+                        date=today,
                         indicator_name=column,
                         defaults={"value": row[column]},
                     )
                     action = "обновлён" if not created else "создан"
-                    logger.debug(f"Индикатор {column} для {crypto} {action}.")
+                    logger.debug(f"Индикатор {column} для {crypto} {action} за {today}.")
 
-        logger.info(f"Индикаторы для {crypto} успешно сохранены или обновлены.")
+        logger.info(f"Индикаторы для {crypto} успешно сохранены или обновлены за {today}.")
     except IntegrityError as e:
         logger.error(
             f"Ошибка при сохранении индикаторов в базу данных для {crypto}: {e}"

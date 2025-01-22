@@ -12,10 +12,12 @@ from crypto_analysis.models import (
 )
 
 
-def load_indicator_data():
-    indicators = IndicatorData.objects.all().values(
-        "cryptocurrency", "date", "indicator_name", "value"
-    )
+def load_indicator_data(selected_indicators=None):
+    query = IndicatorData.objects.all()
+    if selected_indicators:
+        query = query.filter(indicator_name__in=selected_indicators)
+
+    indicators = query.values("cryptocurrency", "date", "indicator_name", "value")
     df = pd.DataFrame(indicators)
     df["date"] = pd.to_datetime(df["date"])
     df = df.pivot_table(
@@ -25,6 +27,29 @@ def load_indicator_data():
 
 
 def short_term_forecasting(data):
+    required_indicators = [
+        "price_change_1d",
+        "price_change_7d",
+        "price_change_14d",
+        "SMA_7",
+        "SMA_14",
+        "SMA_30",
+        "volatility_7",
+        "volatility_14",
+        "volatility_30",
+        "RSI_7",
+        "RSI_14",
+        "RSI_30",
+        "CCI_7",
+        "CCI_14",
+        "ATR_14",
+        "ATR_30",
+        "stochastic_7",
+        "stochastic_14",
+        "MACD_12_26_9",
+    ]
+    data = data[["cryptocurrency", "date"] + required_indicators].dropna()
+
     models = {
         "RandomForest": RandomForestRegressor(n_estimators=100, max_depth=5),
         "XGBoost": XGBRegressor(n_estimators=100, max_depth=5, learning_rate=0.1),
@@ -49,6 +74,27 @@ def short_term_forecasting(data):
 
 
 def long_term_forecasting(data):
+    required_indicators = [
+        "price_change_7d",
+        "price_change_14d",
+        "price_change_30d",
+        "SMA_50",
+        "SMA_200",
+        "volatility_30",
+        "volatility_60",
+        "volatility_180",
+        "RSI_30",
+        "RSI_90",
+        "CCI_30",
+        "ATR_30",
+        "ATR_60",
+        "Bollinger_30",
+        "Bollinger_50",
+        "Bollinger_200",
+        "MACD_12_26_9",
+    ]
+    data = data[["cryptocurrency", "date"] + required_indicators].dropna()
+
     models = {
         "Prophet": Prophet(),
         "ARIMA": ARIMA,
@@ -83,13 +129,15 @@ def long_term_forecasting(data):
 
 
 def prepare_data_for_ml(data):
-    X = data.drop(["cryptocurrency", "date"], axis=1).values[:-1]
-    y = data["value"].values[1:]
-    return X, y
+    features = data.drop(["cryptocurrency", "date"], axis=1).values[:-1]
+    target = data["value"].shift(-1).dropna()
+    return features, target
 
 
 def prepare_data_for_prophet(data):
-    df_prophet = data[["date", "value"]].rename(columns={"date": "ds", "value": "y"})
+    data["y"] = data.drop(["cryptocurrency", "date"], axis=1).mean(axis=1)
+    df_prophet = data[["date", "y"]].rename(columns={"date": "ds"})
+    df_prophet = df_prophet.dropna()
     return df_prophet
 
 
@@ -116,8 +164,50 @@ def save_predictions(predictions, is_short_term=True):
 
 
 def run_forecasting():
-    data = load_indicator_data()
-    short_predictions = short_term_forecasting(data)
+    short_term_indicators = [
+        "price_change_1d",
+        "price_change_7d",
+        "price_change_14d",
+        "SMA_7",
+        "SMA_14",
+        "SMA_30",
+        "volatility_7",
+        "volatility_14",
+        "volatility_30",
+        "RSI_7",
+        "RSI_14",
+        "RSI_30",
+        "CCI_7",
+        "CCI_14",
+        "ATR_14",
+        "ATR_30",
+        "stochastic_7",
+        "stochastic_14",
+        "MACD_12_26_9",
+    ]
+    short_term_data = load_indicator_data(short_term_indicators)
+    short_predictions = short_term_forecasting(short_term_data)
     save_predictions(short_predictions, is_short_term=True)
-    long_predictions = long_term_forecasting(data)
+
+    long_term_indicators = [
+        "price_change_7d",
+        "price_change_14d",
+        "price_change_30d",
+        "SMA_50",
+        "SMA_200",
+        "volatility_30",
+        "volatility_60",
+        "volatility_180",
+        "RSI_30",
+        "RSI_90",
+        "CCI_30",
+        "ATR_30",
+        "ATR_60",
+        "Bollinger_30",
+        "Bollinger_50",
+        "Bollinger_200",
+        "MACD_12_26_9",
+    ]
+    long_term_data = load_indicator_data(long_term_indicators)
+    long_predictions = long_term_forecasting(long_term_data)
     save_predictions(long_predictions, is_short_term=False)
