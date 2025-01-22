@@ -28,9 +28,13 @@ def save_indicators_to_db(df: pd.DataFrame, crypto: str):
                         defaults={"value": row[column]},
                     )
                     action = "обновлён" if not created else "создан"
-                    logger.debug(f"Индикатор {column} для {crypto} {action} за {today}.")
+                    logger.debug(
+                        f"Индикатор {column} для {crypto} {action} за {today}."
+                    )
 
-        logger.info(f"Индикаторы для {crypto} успешно сохранены или обновлены за {today}.")
+        logger.info(
+            f"Индикаторы для {crypto} успешно сохранены или обновлены за {today}."
+        )
     except IntegrityError as e:
         logger.error(
             f"Ошибка при сохранении индикаторов в базу данных для {crypto}: {e}"
