@@ -51,16 +51,42 @@ class MarketData(models.Model):
 class IndicatorData(models.Model):
     cryptocurrency = models.CharField(max_length=50)
     date = models.DateTimeField()
-    indicator_name = models.CharField(max_length=100)
-    value = models.FloatField()
+    price_change_1d = models.FloatField(null=True, blank=True)
+    price_change_7d = models.FloatField(null=True, blank=True)
+    price_change_14d = models.FloatField(null=True, blank=True)
+    price_change_30d = models.FloatField(null=True, blank=True)
+    sma_7 = models.FloatField(null=True, blank=True)
+    sma_14 = models.FloatField(null=True, blank=True)
+    sma_30 = models.FloatField(null=True, blank=True)
+    sma_50 = models.FloatField(null=True, blank=True)
+    sma_200 = models.FloatField(null=True, blank=True)
+    volatility_7d = models.FloatField(null=True, blank=True)
+    volatility_14d = models.FloatField(null=True, blank=True)
+    volatility_30d = models.FloatField(null=True, blank=True)
+    volatility_60d = models.FloatField(null=True, blank=True)
+    volatility_180d = models.FloatField(null=True, blank=True)
+    rsi_7d = models.FloatField(null=True, blank=True)
+    rsi_14d = models.FloatField(null=True, blank=True)
+    rsi_30d = models.FloatField(null=True, blank=True)
+    rsi_90d = models.FloatField(null=True, blank=True)
+    cci_7d = models.FloatField(null=True, blank=True)
+    cci_14d = models.FloatField(null=True, blank=True)
+    cci_30d = models.FloatField(null=True, blank=True)
+    atr_14d = models.FloatField(null=True, blank=True)
+    atr_30d = models.FloatField(null=True, blank=True)
+    atr_60d = models.FloatField(null=True, blank=True)
+    bollinger_bands_14d_upper = models.FloatField(null=True, blank=True)
+    bollinger_bands_14d_lower = models.FloatField(null=True, blank=True)
+    bollinger_bands_30d_upper = models.FloatField(null=True, blank=True)
+    bollinger_bands_30d_lower = models.FloatField(null=True, blank=True)
+    macd_12_26 = models.FloatField(null=True, blank=True)
+    macd_signal_9 = models.FloatField(null=True, blank=True)
+    stochastic_oscillator_7d = models.FloatField(null=True, blank=True)
+    stochastic_oscillator_14d = models.FloatField(null=True, blank=True)
+    stochastic_oscillator_30d = models.FloatField(null=True, blank=True)
+    lag_macd_12 = models.FloatField(null=True, blank=True)
+    lag_macd_26 = models.FloatField(null=True, blank=True)
+    lag_macd_9 = models.FloatField(null=True, blank=True)
 
     class Meta:
-        unique_together = ("cryptocurrency", "date", "indicator_name")
-        indexes = [
-            models.Index(fields=["cryptocurrency", "date"]),
-            models.Index(fields=["cryptocurrency", "indicator_name"]),
-            models.Index(fields=["date", "indicator_name"]),
-        ]
-
-    def __str__(self):
-        return f"{self.cryptocurrency} - {self.indicator_name} - {self.date}"
+        unique_together = ('cryptocurrency', 'date')

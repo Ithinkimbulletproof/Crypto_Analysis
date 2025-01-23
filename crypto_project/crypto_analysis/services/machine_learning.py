@@ -21,9 +21,13 @@ def load_indicator_data(selected_indicators=None):
     df = pd.DataFrame(indicators)
     df["date"] = pd.to_datetime(df["date"])
 
-    df_wide = df.pivot(index=["cryptocurrency", "date"], columns="indicator_name", values="value").reset_index()
+    df_wide = df.pivot(
+        index=["cryptocurrency", "date"], columns="indicator_name", values="value"
+    ).reset_index()
 
-    df_wide["original_value"] = df.groupby(["cryptocurrency", "date"])["value"].mean().reset_index(drop=True)
+    df_wide["original_value"] = (
+        df.groupby(["cryptocurrency", "date"])["value"].mean().reset_index(drop=True)
+    )
 
     return df_wide
 
@@ -148,7 +152,9 @@ def prepare_data_for_ml(data):
             f"Column 'original_value' is missing in the input data. Available columns: {list(data.columns)}"
         )
 
-    features = data.drop(["cryptocurrency", "date", "original_value"], axis=1).iloc[:-1].values
+    features = (
+        data.drop(["cryptocurrency", "date", "original_value"], axis=1).iloc[:-1].values
+    )
     target = data["original_value"].shift(-1).dropna().values
 
     if len(features) == 0 or len(target) == 0:
