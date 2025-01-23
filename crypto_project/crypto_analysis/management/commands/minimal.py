@@ -7,6 +7,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class Command(BaseCommand):
     help = "Получает данные с бирж, сохраняет их в базе данных, рассчитывает индикаторы и предсказывает изменения"
 
@@ -20,7 +21,9 @@ class Command(BaseCommand):
 
             self.stdout.write(self.style.SUCCESS("Запуск обработки индикаторов..."))
             process_all_indicators()
-            self.stdout.write(self.style.SUCCESS("Все индикаторы успешно рассчитаны и сохранены"))
+            self.stdout.write(
+                self.style.SUCCESS("Все индикаторы успешно рассчитаны и сохранены")
+            )
 
             self.stdout.write(self.style.SUCCESS("Запуск предсказательной модели..."))
             predict_for_all_cryptos()
@@ -32,4 +35,6 @@ class Command(BaseCommand):
 
         end_time = time.time()
         elapsed_time = end_time - start_time
-        self.stdout.write(self.style.SUCCESS(f"Время выполнения: {elapsed_time:.2f} секунд"))
+        self.stdout.write(
+            self.style.SUCCESS(f"Время выполнения: {elapsed_time:.2f} секунд")
+        )

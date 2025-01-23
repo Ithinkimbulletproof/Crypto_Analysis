@@ -17,19 +17,18 @@ def save_indicators_to_db(df: pd.DataFrame, crypto: str):
     try:
         today = timezone.now()
 
+        excluded_columns = {"cryptocurrency", "high_price", "low_price", "close_price"}
+
         for index, row in df.iterrows():
             for column in df.columns:
-                if column != "cryptocurrency":
-                    indicator_data, created = IndicatorData.objects.update_or_create(
+                if column not in excluded_columns:
+                    IndicatorData.objects.create(
                         cryptocurrency=crypto,
                         date=today,
                         indicator_name=column,
-                        defaults={"value": row[column]},
+                        value=row[column],
                     )
-                    action = "обновлён" if not created else "создан"
-                    logger.debug(
-                        f"Индикатор {column} для {crypto} {action} за {today}."
-                    )
+                    logger.debug(f"Индикатор {column} для {crypto} за {today} создан.")
 
         logger.info(
             f"Индикаторы для {crypto} успешно сохранены или обновлены за {today}."
@@ -188,8 +187,7 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                     f"Расчёт индикатора lag_macd для периодов {periods} завершён."
                 )
 
-        save_indicators_to_db(df, crypto)
-        logger.info(f"Данные для криптовалюты {crypto} сохранены в базу данных.")
+        logger.info(f"Все индикаторы для криптовалюты {crypto} успешно рассчитаны.")
         return df
     except Exception as e:
         logger.error(f"Ошибка при расчёте индикаторов: {e}")
