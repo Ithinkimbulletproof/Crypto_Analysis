@@ -13,7 +13,12 @@ def load_indicator_data(selected_indicators=None):
 
     indicators = query.values("cryptocurrency", "date", "indicator_name", "value")
     df = pd.DataFrame(indicators)
-    df["date"] = pd.to_datetime(df["date"])
+
+    try:
+        df["date"] = pd.to_datetime(df["date"], errors='raise')
+    except Exception as e:
+        logger.error(f"Ошибка преобразования даты: {e}")
+        return pd.DataFrame()
 
     df_wide = df.pivot(
         index=["cryptocurrency", "date"], columns="indicator_name", values="value"
