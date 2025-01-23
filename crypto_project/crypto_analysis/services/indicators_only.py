@@ -24,7 +24,11 @@ def load_indicator_data(selected_indicators=None):
         index=["cryptocurrency", "date"], columns="indicator_name", values="value"
     ).reset_index()
 
-    df_wide.fillna(df_wide.mean(), inplace=True)
+    df_wide_numerics = df_wide.select_dtypes(include=['number'])
+
+    df_wide_numerics.fillna(df_wide_numerics.mean(), inplace=True)
+
+    df_wide[df_wide_numerics.columns] = df_wide_numerics
 
     df_wide["original_value"] = (
         df.groupby(["cryptocurrency", "date"])["value"].mean().reset_index(drop=True)
@@ -66,9 +70,6 @@ def simple_prediction(crypto_data):
 
     for indicator in indicators:
         value = crypto_data[indicator]
-        logger.info(
-            f"Indicator {indicator} value for {crypto_data['cryptocurrency']} = {value}"
-        )
 
         if pd.notnull(value):
             if value > 0:
@@ -97,16 +98,17 @@ def predict_for_all_cryptos():
     cryptocurrencies = data["cryptocurrency"].unique()
 
     for crypto in cryptocurrencies:
-        logger.info(f"Predicting for {crypto}")
+        print(f"Предсказание для {crypto}")
 
         crypto_data = data[data["cryptocurrency"] == crypto]
 
         latest_data = crypto_data.iloc[-1]
 
         prediction, probability_up, probability_down = simple_prediction(latest_data)
-        logger.info(f"Prediction for the next day for {crypto}: {prediction}")
-        logger.info(f"Probability of Up: {probability_up:.2f}%")
-        logger.info(f"Probability of Down: {probability_down:.2f}%")
+        print(f"Прогноз на следующий день для {crypto}: {prediction}")
+        print(f"Вероятность роста: {probability_up:.2f}%")
+        print(f"Вероятность падения: {probability_down:.2f}%")
+        print(f"____________________________________________")
 
 
 if __name__ == "__main__":
