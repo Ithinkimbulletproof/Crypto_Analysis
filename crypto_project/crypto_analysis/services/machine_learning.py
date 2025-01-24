@@ -1,3 +1,4 @@
+import logging
 import pandas as pd
 from prophet import Prophet
 from xgboost import XGBRegressor
@@ -12,48 +13,34 @@ from crypto_analysis.models import (
     MarketData
 )
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 def load_market_and_indicator_data(selected_indicators=None):
-    query = IndicatorData.objects.all()
-    if selected_indicators:
-        query = query.filter(indicator_name__in=selected_indicators)
+    try:
+        query = IndicatorData.objects.all()
+        if selected_indicators:
+            query = query.filter(indicator_name__in=selected_indicators)
+        indicators = query.values("cryptocurrency", "date", "indicator_name", "value")
+        df_indicators = pd.DataFrame(indicators)
+        df_indicators["date"] = pd.to_datetime(df_indicators["date"], utc=True).dt.tz_localize(None)
 
-    indicators = query.values("cryptocurrency", "date", "indicator_name", "value")
-    df_indicators = pd.DataFrame(indicators)
-    df_indicators["date"] = pd.to_datetime(df_indicators["date"])
+        df_indicators_wide = df_indicators.pivot(index=["cryptocurrency", "date"], columns="indicator_name", values="value").reset_index()
 
-    df_indicators_wide = df_indicators.pivot(
-        index=["cryptocurrency", "date"], columns="indicator_name", values="value"
-    ).reset_index()
+        cryptos = df_indicators_wide["cryptocurrency"].unique()
+        market_data = MarketData.objects.filter(cryptocurrency__in=cryptos).order_by("date").values("cryptocurrency", "date", "open_price", "high_price", "low_price", "close_price", "volume", "exchange")
+        df_market = pd.DataFrame(market_data)
+        df_market["date"] = pd.to_datetime(df_market["date"], utc=True).dt.tz_localize(None)
+        df_market["date"] = df_market["date"].dt.floor("min")
 
-    market_data = MarketData.objects.filter(
-        cryptocurrency__in=df_indicators_wide["cryptocurrency"].unique()
-    ).values("cryptocurrency", "date", "open_price", "high_price", "low_price", "close_price", "volume", "exchange")
+        df_indicators_wide["date"] = df_indicators_wide["date"].dt.floor("min")
+        df_combined = pd.merge(df_indicators_wide, df_market, on=["cryptocurrency", "date"], how="left")
 
-    df_market = pd.DataFrame(market_data)
-    df_market["date"] = pd.to_datetime(df_market["date"])
+        return df_combined
 
-    df_market["date"] = df_market["date"].dt.tz_localize(None)
-
-    df_market_grouped = df_market.groupby([df_market["cryptocurrency"], df_market["date"].dt.floor("H")]).agg({
-        "open_price": "mean",
-        "high_price": "mean",
-        "low_price": "mean",
-        "close_price": "mean",
-        "volume": "sum",
-    }).reset_index()
-
-    df_indicators_wide["date"] = df_indicators_wide["date"].dt.tz_localize(None)
-
-    df = pd.merge(df_indicators_wide, df_market_grouped, on=["cryptocurrency", "date"], how="left")
-
-    if df.isna().sum().sum() > 0:
-        print("В данных есть пропущенные значения.")
-
-    if df.duplicated().sum() > 0:
-        print("В данных есть дубликаты.")
-
-    return df
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке данных: {e}")
+        return pd.DataFrame()
 
 
 def short_term_indicators():

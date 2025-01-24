@@ -72,7 +72,7 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
             "lag_macd": [12, 26, 9],
         }
 
-        today = timezone.now()
+        today = timezone.localtime(timezone.now()).replace(microsecond=0)
         excluded_columns = {"cryptocurrency", "high_price", "low_price", "close_price"}
 
         for indicator, periods in indicators.items():
