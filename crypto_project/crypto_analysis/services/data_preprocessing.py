@@ -33,7 +33,7 @@ def get_data_for_all_cryptos():
             logger.info(
                 f"Получено {len(data_all)} записей для {crypto}. Пример: {data_all[:1]}."
             )
-            if not data_all:
+            if len(data_all) == 0:
                 logger.warning(f"Нет данных для {crypto}. Пропускаю.")
                 continue
             df = pd.DataFrame(
@@ -117,7 +117,7 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                     delta = df["close_price"].diff()
                     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
                     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-                    rs = gain / loss
+                    rs = gain / (loss.replace(0, 1e-10))
                     df[f"RSI_{period}d"] = 100 - (100 / (1 + rs))
                     IndicatorData.objects.create(
                         cryptocurrency=crypto,

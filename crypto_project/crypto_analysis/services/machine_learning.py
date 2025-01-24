@@ -9,27 +9,51 @@ from crypto_analysis.models import (
     IndicatorData,
     ShortTermCryptoPrediction,
     LongTermCryptoPrediction,
+    MarketData
 )
 
 
-def load_indicator_data(selected_indicators=None):
+def load_market_and_indicator_data(selected_indicators=None):
     query = IndicatorData.objects.all()
     if selected_indicators:
         query = query.filter(indicator_name__in=selected_indicators)
 
     indicators = query.values("cryptocurrency", "date", "indicator_name", "value")
-    df = pd.DataFrame(indicators)
-    df["date"] = pd.to_datetime(df["date"])
+    df_indicators = pd.DataFrame(indicators)
+    df_indicators["date"] = pd.to_datetime(df_indicators["date"])
 
-    df_wide = df.pivot(
+    df_indicators_wide = df_indicators.pivot(
         index=["cryptocurrency", "date"], columns="indicator_name", values="value"
     ).reset_index()
 
-    df_wide["original_value"] = (
-        df.groupby(["cryptocurrency", "date"])["value"].mean().reset_index(drop=True)
-    )
+    market_data = MarketData.objects.filter(
+        cryptocurrency__in=df_indicators_wide["cryptocurrency"].unique()
+    ).values("cryptocurrency", "date", "open_price", "high_price", "low_price", "close_price", "volume", "exchange")
 
-    return df_wide
+    df_market = pd.DataFrame(market_data)
+    df_market["date"] = pd.to_datetime(df_market["date"])
+
+    df_market["date"] = df_market["date"].dt.tz_localize(None)
+
+    df_market_grouped = df_market.groupby([df_market["cryptocurrency"], df_market["date"].dt.floor("H")]).agg({
+        "open_price": "mean",
+        "high_price": "mean",
+        "low_price": "mean",
+        "close_price": "mean",
+        "volume": "sum",
+    }).reset_index()
+
+    df_indicators_wide["date"] = df_indicators_wide["date"].dt.tz_localize(None)
+
+    df = pd.merge(df_indicators_wide, df_market_grouped, on=["cryptocurrency", "date"], how="left")
+
+    if df.isna().sum().sum() > 0:
+        print("В данных есть пропущенные значения.")
+
+    if df.duplicated().sum() > 0:
+        print("В данных есть дубликаты.")
+
+    return df
 
 
 def short_term_indicators():
@@ -54,7 +78,7 @@ def short_term_indicators():
         "Stochastic_14",
         "MACD_12_26",
         "MACD_signal_9",
-        "original_value",
+        "value",
     ]
 
 
@@ -78,13 +102,13 @@ def long_term_indicators():
         "Stochastic_30",
         "MACD_12_26",
         "MACD_signal_9",
-        "original_value",
+        "value",
     ]
 
 
 def short_term_forecasting(data):
     required_indicators = short_term_indicators()
-    data = data[["cryptocurrency", "date"] + required_indicators].dropna()
+    data = data[["cryptocurrency", "date"] + required_indicators + ["close_price"]].dropna()
 
     models = {
         "RandomForest": RandomForestRegressor(n_estimators=100, max_depth=5),
@@ -125,9 +149,16 @@ def long_term_forecasting(data):
             X, y = prepare_data_for_ml(crypto_data)
             if model_name == "Prophet":
                 df_prophet = prepare_data_for_prophet(crypto_data)
-                model.fit(df_prophet)
-                forecast = model.predict(df_prophet)
-                y_pred = forecast["yhat"][-1]
+                if df_prophet.empty or len(df_prophet) < 2:
+                    print(f"Not enough data for Prophet: {crypto}")
+                    continue
+                try:
+                    model.fit(df_prophet)
+                    forecast = model.predict(df_prophet)
+                    y_pred = forecast["yhat"].iloc[-1]
+                except Exception as e:
+                    print(f"Prophet error for {crypto}: {e}")
+                    continue
             elif model_name == "ARIMA":
                 model = model(crypto_data["value"], order=(5, 1, 0))
                 model_fit = model.fit()
@@ -147,15 +178,13 @@ def long_term_forecasting(data):
 
 
 def prepare_data_for_ml(data):
-    if "original_value" not in data.columns:
+    if "close_price" not in data.columns:
         raise KeyError(
-            f"Column 'original_value' is missing in the input data. Available columns: {list(data.columns)}"
+            f"Column 'close_price' is missing in the input data. Available columns: {list(data.columns)}"
         )
 
-    features = (
-        data.drop(["cryptocurrency", "date", "original_value"], axis=1).iloc[:-1].values
-    )
-    target = data["original_value"].shift(-1).dropna().values
+    features = data.drop(["cryptocurrency", "date"], axis=1).iloc[:-1].values
+    target = data["close_price"].shift(-1).dropna().values
 
     if len(features) == 0 or len(target) == 0:
         raise ValueError("Insufficient data after processing.")
@@ -164,6 +193,7 @@ def prepare_data_for_ml(data):
 
 
 def prepare_data_for_prophet(data):
+    data = data.copy()
     data["y"] = data.drop(["cryptocurrency", "date"], axis=1).mean(axis=1)
     df_prophet = data[["date", "y"]].rename(columns={"date": "ds"})
 
@@ -189,17 +219,17 @@ def save_predictions(predictions, is_short_term=True):
             model_type=pred["model_type"],
             defaults={
                 "predicted_price_change": pred["predicted_change"],
-                "predicted_close": pred.get("predicted_close", 0),
+                "predicted_close": pred["predicted_change"],
                 "confidence_level": pred["confidence"],
             },
         )
 
 
 def run_forecasting():
-    short_term_data = load_indicator_data(short_term_indicators())
+    short_term_data = load_market_and_indicator_data(short_term_indicators())
     short_predictions = short_term_forecasting(short_term_data)
     save_predictions(short_predictions, is_short_term=True)
 
-    long_term_data = load_indicator_data(long_term_indicators())
+    long_term_data = load_market_and_indicator_data(long_term_indicators())
     long_predictions = long_term_forecasting(long_term_data)
     save_predictions(long_predictions, is_short_term=False)
