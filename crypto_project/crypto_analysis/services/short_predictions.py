@@ -1,15 +1,12 @@
 import logging
 import pandas as pd
-from prophet import Prophet
 from xgboost import XGBRegressor
 from django.db import transaction
-from statsmodels.tsa.arima.model import ARIMA
 from sklearn.neural_network import MLPRegressor
 from sklearn.ensemble import RandomForestRegressor
 from crypto_analysis.models import (
     IndicatorData,
     ShortTermCryptoPrediction,
-    LongTermCryptoPrediction,
     MarketData
 )
 
@@ -70,30 +67,6 @@ def short_term_indicators():
     ]
 
 
-def long_term_indicators():
-    return [
-        "price_change_7d",
-        "price_change_14d",
-        "price_change_30d",
-        "SMA_50",
-        "SMA_200",
-        "volatility_30d",
-        "volatility_60d",
-        "volatility_180d",
-        "RSI_30d",
-        "RSI_90d",
-        "CCI_30d",
-        "ATR_30",
-        "ATR_60",
-        "BB_upper_30",
-        "BB_lower_30",
-        "Stochastic_30",
-        "MACD_12_26",
-        "MACD_signal_9",
-        "value",
-    ]
-
-
 def short_term_forecasting(data):
     required_indicators = short_term_indicators()
     data = data[["cryptocurrency", "date"] + required_indicators + ["close_price"]].dropna()
@@ -110,50 +83,6 @@ def short_term_forecasting(data):
             X, y = prepare_data_for_ml(crypto_data)
             model.fit(X, y)
             y_pred = model.predict([X[-1]])[0]
-            predictions.append(
-                {
-                    "cryptocurrency": crypto,
-                    "predicted_change": y_pred,
-                    "model_type": model_name,
-                    "confidence": calculate_confidence(model, X, y),
-                }
-            )
-    return predictions
-
-
-def long_term_forecasting(data):
-    required_indicators = long_term_indicators()
-    data = data[["cryptocurrency", "date"] + required_indicators].dropna()
-
-    models = {
-        "Prophet": Prophet(),
-        "ARIMA": ARIMA,
-        "MLP": MLPRegressor(hidden_layer_sizes=(50,), max_iter=1000, random_state=42),
-    }
-    predictions = []
-    for model_name, model in models.items():
-        for crypto, crypto_data in data.groupby("cryptocurrency"):
-            crypto_data = crypto_data.sort_values("date")
-            X, y = prepare_data_for_ml(crypto_data)
-            if model_name == "Prophet":
-                df_prophet = prepare_data_for_prophet(crypto_data)
-                if df_prophet.empty or len(df_prophet) < 2:
-                    print(f"Not enough data for Prophet: {crypto}")
-                    continue
-                try:
-                    model.fit(df_prophet)
-                    forecast = model.predict(df_prophet)
-                    y_pred = forecast["yhat"].iloc[-1]
-                except Exception as e:
-                    print(f"Prophet error for {crypto}: {e}")
-                    continue
-            elif model_name == "ARIMA":
-                model = model(crypto_data["value"], order=(5, 1, 0))
-                model_fit = model.fit()
-                y_pred = model_fit.forecast(steps=1)[0]
-            elif model_name == "MLP":
-                model.fit(X, y)
-                y_pred = model.predict([X[-1]])[0]
             predictions.append(
                 {
                     "cryptocurrency": crypto,
@@ -199,7 +128,7 @@ def calculate_confidence(model, X, y):
 
 @transaction.atomic
 def save_predictions(predictions, is_short_term=True):
-    model = ShortTermCryptoPrediction if is_short_term else LongTermCryptoPrediction
+    model = ShortTermCryptoPrediction
     for pred in predictions:
         model.objects.update_or_create(
             cryptocurrency_pair=pred["cryptocurrency"],
@@ -213,11 +142,7 @@ def save_predictions(predictions, is_short_term=True):
         )
 
 
-def run_forecasting():
+def run_short_predictions():
     short_term_data = load_market_and_indicator_data(short_term_indicators())
     short_predictions = short_term_forecasting(short_term_data)
     save_predictions(short_predictions, is_short_term=True)
-
-    long_term_data = load_market_and_indicator_data(long_term_indicators())
-    long_predictions = long_term_forecasting(long_term_data)
-    save_predictions(long_predictions, is_short_term=False)
