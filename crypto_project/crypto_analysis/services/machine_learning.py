@@ -31,9 +31,10 @@ def load_market_and_indicator_data(selected_indicators=None):
         market_data = MarketData.objects.filter(cryptocurrency__in=cryptos).order_by("date").values("cryptocurrency", "date", "open_price", "high_price", "low_price", "close_price", "volume", "exchange")
         df_market = pd.DataFrame(market_data)
         df_market["date"] = pd.to_datetime(df_market["date"], utc=True).dt.tz_localize(None)
-        df_market["date"] = df_market["date"].dt.floor("min")
 
-        df_indicators_wide["date"] = df_indicators_wide["date"].dt.floor("min")
+        df_market["date"] = df_market["date"].dt.floor("h")
+        df_indicators_wide["date"] = df_indicators_wide["date"].dt.floor("h")
+
         df_combined = pd.merge(df_indicators_wide, df_market, on=["cryptocurrency", "date"], how="left")
 
         return df_combined
