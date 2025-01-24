@@ -69,13 +69,18 @@ def short_term_indicators():
 
 def short_term_forecasting(data):
     required_indicators = short_term_indicators()
+    required_indicators = [indicator for indicator in required_indicators if indicator != "value"]
+
     data = data[["cryptocurrency", "date"] + required_indicators + ["close_price"]].dropna()
+
+    print(f"Data after filtering: {data.head()}")
 
     models = {
         "RandomForest": RandomForestRegressor(n_estimators=100, max_depth=5),
         "XGBoost": XGBRegressor(n_estimators=100, max_depth=5, learning_rate=0.1),
         "MLP": MLPRegressor(hidden_layer_sizes=(50,), max_iter=1000, random_state=42),
     }
+
     predictions = []
     for model_name, model in models.items():
         for crypto, crypto_data in data.groupby("cryptocurrency"):
