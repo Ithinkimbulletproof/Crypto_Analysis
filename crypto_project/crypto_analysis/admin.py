@@ -4,9 +4,11 @@ from .models import (
     LongTermCryptoPrediction,
     MarketData,
     IndicatorData,
+    NewsArticle,
 )
 
 
+@admin.register(ShortTermCryptoPrediction)
 class ShortTermCryptoPredictionAdmin(admin.ModelAdmin):
     list_display = (
         "cryptocurrency_pair",
@@ -17,11 +19,11 @@ class ShortTermCryptoPredictionAdmin(admin.ModelAdmin):
         "confidence_level",
     )
     list_filter = ("cryptocurrency_pair", "prediction_date", "model_type")
-    search_fields = ("cryptocurrency_pair",)
-    date_hierarchy = "prediction_date"
+    search_fields = ("cryptocurrency_pair", "model_type")
     ordering = ("-prediction_date",)
 
 
+@admin.register(LongTermCryptoPrediction)
 class LongTermCryptoPredictionAdmin(admin.ModelAdmin):
     list_display = (
         "cryptocurrency_pair",
@@ -32,11 +34,11 @@ class LongTermCryptoPredictionAdmin(admin.ModelAdmin):
         "confidence_level",
     )
     list_filter = ("cryptocurrency_pair", "prediction_date", "model_type")
-    search_fields = ("cryptocurrency_pair",)
-    date_hierarchy = "prediction_date"
+    search_fields = ("cryptocurrency_pair", "model_type")
     ordering = ("-prediction_date",)
 
 
+@admin.register(MarketData)
 class MarketDataAdmin(admin.ModelAdmin):
     list_display = (
         "cryptocurrency",
@@ -48,21 +50,29 @@ class MarketDataAdmin(admin.ModelAdmin):
         "volume",
         "exchange",
     )
-    list_filter = ("cryptocurrency", "date", "exchange")
+    list_filter = ("cryptocurrency", "exchange", "date")
     search_fields = ("cryptocurrency", "exchange")
-    date_hierarchy = "date"
     ordering = ("-date",)
 
 
+@admin.register(IndicatorData)
 class IndicatorDataAdmin(admin.ModelAdmin):
     list_display = ("cryptocurrency", "date", "indicator_name", "value")
-    list_filter = ("cryptocurrency", "indicator_name")
+    list_filter = ("cryptocurrency", "indicator_name", "date")
     search_fields = ("cryptocurrency", "indicator_name")
-    date_hierarchy = "date"
     ordering = ("-date",)
 
 
-admin.site.register(ShortTermCryptoPrediction, ShortTermCryptoPredictionAdmin)
-admin.site.register(LongTermCryptoPrediction, LongTermCryptoPredictionAdmin)
-admin.site.register(MarketData, MarketDataAdmin)
-admin.site.register(IndicatorData, IndicatorDataAdmin)
+@admin.register(NewsArticle)
+class NewsArticleAdmin(admin.ModelAdmin):
+    list_display = (
+        "title",
+        "published_at",
+        "sentiment",
+        "polarity",
+        "source",
+        "language",
+    )
+    list_filter = ("sentiment", "language", "published_at")
+    search_fields = ("title", "description", "source")
+    ordering = ("-published_at",)

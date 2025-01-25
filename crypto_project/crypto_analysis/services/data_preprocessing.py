@@ -1,4 +1,5 @@
 import logging
+import calendar
 import pandas as pd
 from dotenv import load_dotenv
 from django.utils import timezone
@@ -79,12 +80,16 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
             for period in periods if periods else [None]:
                 existing_indicator = IndicatorData.objects.filter(
                     cryptocurrency=crypto,
-                    indicator_name=f"{indicator}_{period}" if period else f"{indicator}",
-                    date__gte=today - timezone.timedelta(days=730)
+                    indicator_name=(
+                        f"{indicator}_{period}" if period else f"{indicator}"
+                    ),
+                    date__gte=today - timezone.timedelta(days=730),
                 ).first()
 
                 if existing_indicator:
-                    logger.info(f"Индикатор {indicator} за {period} дней уже рассчитан.")
+                    logger.info(
+                        f"Индикатор {indicator} за {period} дней уже рассчитан."
+                    )
                     continue
 
                 if indicator == "price_change":
@@ -214,6 +219,29 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"Lag_{period}",
                         value=df[f"Lag_{period}"].iloc[-1],
                     )
+
+        df["month"] = df.index.month
+        df["day_of_week"] = df.index.dayofweek.map(lambda x: calendar.day_name[x])
+
+        monthly_seasonality = df.groupby("month")["close_price"].mean()
+        for month, avg_price in monthly_seasonality.items():
+            IndicatorData.objects.create(
+                cryptocurrency=crypto,
+                date=today,
+                indicator_name=f"seasonality_month_{month}",
+                value=avg_price,
+            )
+            logger.info(f"Сезонность (месяц {month}): {avg_price:.2f}")
+
+        weekly_seasonality = df.groupby("day_of_week")["close_price"].mean()
+        for day, avg_price in weekly_seasonality.items():
+            IndicatorData.objects.create(
+                cryptocurrency=crypto,
+                date=today,
+                indicator_name=f"seasonality_weekday_{day}",
+                value=avg_price,
+            )
+            logger.info(f"Сезонность (день недели {day}): {avg_price:.2f}")
 
         logger.info(
             f"Все индикаторы для криптовалюты {crypto} успешно рассчитаны и сохранены."

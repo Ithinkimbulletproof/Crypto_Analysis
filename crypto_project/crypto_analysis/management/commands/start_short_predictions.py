@@ -21,7 +21,8 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS("Запуск обработки индикаторов..."))
             process_all_indicators()
             self.stdout.write(
-                self.style.SUCCESS("Все индикаторы успешно рассчитаны и сохранены"))
+                self.style.SUCCESS("Все индикаторы успешно рассчитаны и сохранены")
+            )
             self.stdout.write(self.style.SUCCESS("Запуск расчёта предсказаний..."))
             run_short_predictions()
             self.style.SUCCESS("Все предсказания успешно рассчитаны и сохранены")

@@ -83,7 +83,27 @@ def short_term_indicators():
         "Stochastic_14",
         "MACD_12_26",
         "MACD_signal_9",
+        "seasonality_weekday_Wednesday",
+        "seasonality_weekday_Tuesday",
+        "seasonality_weekday_Thursday",
+        "seasonality_weekday_Sunday",
+        "seasonality_weekday_Saturday",
+        "seasonality_weekday_Monday",
+        "seasonality_weekday_Friday",
+        "seasonality_month_1",
+        "seasonality_month_2",
+        "seasonality_month_3",
+        "seasonality_month_4",
+        "seasonality_month_5",
+        "seasonality_month_6",
+        "seasonality_month_7",
+        "seasonality_month_8",
+        "seasonality_month_9",
+        "seasonality_month_10",
+        "seasonality_month_11",
+        "seasonality_month_12",
         "value",
+        "volume",
     ]
 
 
@@ -93,7 +113,9 @@ def short_term_forecasting(data):
         indicator for indicator in required_indicators if indicator != "value"
     ]
 
-    data = data[["cryptocurrency", "date"] + required_indicators + ["close_price"]].dropna()
+    data = data[
+        ["cryptocurrency", "date"] + required_indicators + ["close_price"]
+    ].dropna()
 
     print(f"Data after filtering: {data.head()}")
 
@@ -102,7 +124,7 @@ def short_term_forecasting(data):
         "XGBoost": XGBRegressor(n_estimators=100, max_depth=5, learning_rate=0.1),
         "KNN": KNeighborsRegressor(n_neighbors=5),
         "DecisionTree": DecisionTreeRegressor(max_depth=5),
-        "SVR": SVR(kernel='rbf', C=1.0, epsilon=0.2),
+        "SVR": SVR(kernel="rbf", C=1.0, epsilon=0.2),
     }
 
     predictions = []
