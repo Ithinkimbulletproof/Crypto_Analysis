@@ -2,8 +2,10 @@ import logging
 import pandas as pd
 from xgboost import XGBRegressor
 from django.db import transaction
-from sklearn.neural_network import MLPRegressor
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.svm import SVR
 from crypto_analysis.models import IndicatorData, ShortTermCryptoPrediction, MarketData
 
 logger = logging.getLogger(__name__)
@@ -91,16 +93,16 @@ def short_term_forecasting(data):
         indicator for indicator in required_indicators if indicator != "value"
     ]
 
-    data = data[
-        ["cryptocurrency", "date"] + required_indicators + ["close_price"]
-    ].dropna()
+    data = data[["cryptocurrency", "date"] + required_indicators + ["close_price"]].dropna()
 
     print(f"Data after filtering: {data.head()}")
 
     models = {
         "RandomForest": RandomForestRegressor(n_estimators=100, max_depth=5),
         "XGBoost": XGBRegressor(n_estimators=100, max_depth=5, learning_rate=0.1),
-        "MLP": MLPRegressor(hidden_layer_sizes=(50,), max_iter=1000, random_state=42),
+        "KNN": KNeighborsRegressor(n_neighbors=5),
+        "DecisionTree": DecisionTreeRegressor(max_depth=5),
+        "SVR": SVR(kernel='rbf', C=1.0, epsilon=0.2),
     }
 
     predictions = []
