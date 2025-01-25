@@ -15,7 +15,7 @@ def load_indicator_data(selected_indicators=None):
     df = pd.DataFrame(indicators)
 
     try:
-        df["date"] = pd.to_datetime(df["date"], errors='raise')
+        df["date"] = pd.to_datetime(df["date"], errors="raise")
     except Exception as e:
         logger.error(f"Ошибка преобразования даты: {e}")
         return pd.DataFrame()
@@ -24,7 +24,7 @@ def load_indicator_data(selected_indicators=None):
         index=["cryptocurrency", "date"], columns="indicator_name", values="value"
     ).reset_index()
 
-    df_wide_numerics = df_wide.select_dtypes(include=['number'])
+    df_wide_numerics = df_wide.select_dtypes(include=["number"])
 
     df_wide_numerics.fillna(df_wide_numerics.mean(), inplace=True)
 

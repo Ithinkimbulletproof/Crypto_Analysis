@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_default_start_date():
-    start_date = datetime.now() - timedelta(days=220)
+    start_date = datetime.now() - timedelta(days=1095)
     return int(start_date.timestamp() * 1000)
 
 

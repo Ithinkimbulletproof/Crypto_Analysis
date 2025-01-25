@@ -87,7 +87,9 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"price_change_{period}d",
                         value=df[f"price_change_{period}d"].iloc[-1],
                     )
-                logger.info(f"Расчёт индикатора price_change для периодов {periods} завершён.")
+                logger.info(
+                    f"Расчёт индикатора price_change для периодов {periods} завершён."
+                )
             elif indicator == "sma":
                 for period in periods:
                     df[f"SMA_{period}"] = (
@@ -111,7 +113,9 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"volatility_{period}d",
                         value=df[f"volatility_{period}d"].iloc[-1],
                     )
-                logger.info(f"Расчёт индикатора volatility для периодов {periods} завершён.")
+                logger.info(
+                    f"Расчёт индикатора volatility для периодов {periods} завершён."
+                )
             elif indicator == "rsi":
                 for period in periods:
                     delta = df["close_price"].diff()
@@ -146,7 +150,9 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                     high_low = df["high_price"] - df["low_price"]
                     high_close = (df["high_price"] - df["close_price"].shift()).abs()
                     low_close = (df["low_price"] - df["close_price"].shift()).abs()
-                    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+                    tr = pd.concat([high_low, high_close, low_close], axis=1).max(
+                        axis=1
+                    )
                     df[f"ATR_{period}"] = tr.rolling(window=period).mean()
                     IndicatorData.objects.create(
                         cryptocurrency=crypto,
@@ -175,7 +181,9 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"BB_lower_{period}",
                         value=df[f"BB_lower_{period}"].iloc[-1],
                     )
-                logger.info(f"Расчёт индикатора bollinger_bands для периодов {periods} завершён.")
+                logger.info(
+                    f"Расчёт индикатора bollinger_bands для периодов {periods} завершён."
+                )
             elif indicator == "macd":
                 ema_12 = df["close_price"].ewm(span=12, adjust=False).mean()
                 ema_26 = df["close_price"].ewm(span=26, adjust=False).mean()
@@ -209,7 +217,9 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"Stochastic_{period}",
                         value=df[f"Stochastic_{period}"].iloc[-1],
                     )
-                logger.info(f"Расчёт индикатора stochastic_oscillator для периодов {periods} завершён.")
+                logger.info(
+                    f"Расчёт индикатора stochastic_oscillator для периодов {periods} завершён."
+                )
             elif indicator == "lag_macd":
                 for period in periods:
                     df[f"Lag_{period}"] = df["close_price"].shift(periods=period)
@@ -219,9 +229,13 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"Lag_{period}",
                         value=df[f"Lag_{period}"].iloc[-1],
                     )
-                logger.info(f"Расчёт индикатора lag_macd для периодов {periods} завершён.")
+                logger.info(
+                    f"Расчёт индикатора lag_macd для периодов {periods} завершён."
+                )
 
-        logger.info(f"Все индикаторы для криптовалюты {crypto} успешно рассчитаны и сохранены.")
+        logger.info(
+            f"Все индикаторы для криптовалюты {crypto} успешно рассчитаны и сохранены."
+        )
         return df
     except Exception as e:
         logger.error(f"Ошибка при расчёте и сохранении индикаторов: {e}")

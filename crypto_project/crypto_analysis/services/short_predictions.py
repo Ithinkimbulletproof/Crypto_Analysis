@@ -4,14 +4,11 @@ from xgboost import XGBRegressor
 from django.db import transaction
 from sklearn.neural_network import MLPRegressor
 from sklearn.ensemble import RandomForestRegressor
-from crypto_analysis.models import (
-    IndicatorData,
-    ShortTermCryptoPrediction,
-    MarketData
-)
+from crypto_analysis.models import IndicatorData, ShortTermCryptoPrediction, MarketData
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
 
 def load_market_and_indicator_data(selected_indicators=None):
     try:
@@ -20,19 +17,40 @@ def load_market_and_indicator_data(selected_indicators=None):
             query = query.filter(indicator_name__in=selected_indicators)
         indicators = query.values("cryptocurrency", "date", "indicator_name", "value")
         df_indicators = pd.DataFrame(indicators)
-        df_indicators["date"] = pd.to_datetime(df_indicators["date"], utc=True).dt.tz_localize(None)
+        df_indicators["date"] = pd.to_datetime(
+            df_indicators["date"], utc=True
+        ).dt.tz_localize(None)
 
-        df_indicators_wide = df_indicators.pivot(index=["cryptocurrency", "date"], columns="indicator_name", values="value").reset_index()
+        df_indicators_wide = df_indicators.pivot(
+            index=["cryptocurrency", "date"], columns="indicator_name", values="value"
+        ).reset_index()
 
         cryptos = df_indicators_wide["cryptocurrency"].unique()
-        market_data = MarketData.objects.filter(cryptocurrency__in=cryptos).order_by("date").values("cryptocurrency", "date", "open_price", "high_price", "low_price", "close_price", "volume", "exchange")
+        market_data = (
+            MarketData.objects.filter(cryptocurrency__in=cryptos)
+            .order_by("date")
+            .values(
+                "cryptocurrency",
+                "date",
+                "open_price",
+                "high_price",
+                "low_price",
+                "close_price",
+                "volume",
+                "exchange",
+            )
+        )
         df_market = pd.DataFrame(market_data)
-        df_market["date"] = pd.to_datetime(df_market["date"], utc=True).dt.tz_localize(None)
+        df_market["date"] = pd.to_datetime(df_market["date"], utc=True).dt.tz_localize(
+            None
+        )
 
         df_market["date"] = df_market["date"].dt.floor("h")
         df_indicators_wide["date"] = df_indicators_wide["date"].dt.floor("h")
 
-        df_combined = pd.merge(df_indicators_wide, df_market, on=["cryptocurrency", "date"], how="left")
+        df_combined = pd.merge(
+            df_indicators_wide, df_market, on=["cryptocurrency", "date"], how="left"
+        )
 
         return df_combined
 
@@ -69,9 +87,13 @@ def short_term_indicators():
 
 def short_term_forecasting(data):
     required_indicators = short_term_indicators()
-    required_indicators = [indicator for indicator in required_indicators if indicator != "value"]
+    required_indicators = [
+        indicator for indicator in required_indicators if indicator != "value"
+    ]
 
-    data = data[["cryptocurrency", "date"] + required_indicators + ["close_price"]].dropna()
+    data = data[
+        ["cryptocurrency", "date"] + required_indicators + ["close_price"]
+    ].dropna()
 
     print(f"Data after filtering: {data.head()}")
 
