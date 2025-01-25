@@ -76,8 +76,18 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
         excluded_columns = {"cryptocurrency", "high_price", "low_price", "close_price"}
 
         for indicator, periods in indicators.items():
-            if indicator == "price_change":
-                for period in periods:
+            for period in periods if periods else [None]:
+                existing_indicator = IndicatorData.objects.filter(
+                    cryptocurrency=crypto,
+                    indicator_name=f"{indicator}_{period}" if period else f"{indicator}",
+                    date__gte=today - timezone.timedelta(days=730)
+                ).first()
+
+                if existing_indicator:
+                    logger.info(f"Индикатор {indicator} за {period} дней уже рассчитан.")
+                    continue
+
+                if indicator == "price_change":
                     df[f"price_change_{period}d"] = (
                         df["close_price"].pct_change(periods=period) * 100
                     )
@@ -87,11 +97,7 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"price_change_{period}d",
                         value=df[f"price_change_{period}d"].iloc[-1],
                     )
-                logger.info(
-                    f"Расчёт индикатора price_change для периодов {periods} завершён."
-                )
-            elif indicator == "sma":
-                for period in periods:
+                elif indicator == "sma":
                     df[f"SMA_{period}"] = (
                         df["close_price"].rolling(window=period).mean()
                     )
@@ -101,9 +107,7 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"SMA_{period}",
                         value=df[f"SMA_{period}"].iloc[-1],
                     )
-                logger.info(f"Расчёт индикатора sma для периодов {periods} завершён.")
-            elif indicator == "volatility":
-                for period in periods:
+                elif indicator == "volatility":
                     df[f"volatility_{period}d"] = (
                         df["close_price"].rolling(window=period).std()
                     )
@@ -113,11 +117,7 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"volatility_{period}d",
                         value=df[f"volatility_{period}d"].iloc[-1],
                     )
-                logger.info(
-                    f"Расчёт индикатора volatility для периодов {periods} завершён."
-                )
-            elif indicator == "rsi":
-                for period in periods:
+                elif indicator == "rsi":
                     delta = df["close_price"].diff()
                     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
                     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
@@ -129,9 +129,7 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"RSI_{period}d",
                         value=df[f"RSI_{period}d"].iloc[-1],
                     )
-                logger.info(f"Расчёт индикатора rsi для периодов {periods} завершён.")
-            elif indicator == "cci":
-                for period in periods:
+                elif indicator == "cci":
                     tp = (df["high_price"] + df["low_price"] + df["close_price"]) / 3
                     sma_tp = tp.rolling(window=period).mean()
                     mean_deviation = tp.rolling(window=period).apply(
@@ -144,9 +142,7 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"CCI_{period}d",
                         value=df[f"CCI_{period}d"].iloc[-1],
                     )
-                logger.info(f"Расчёт индикатора cci для периодов {periods} завершён.")
-            elif indicator == "atr":
-                for period in periods:
+                elif indicator == "atr":
                     high_low = df["high_price"] - df["low_price"]
                     high_close = (df["high_price"] - df["close_price"].shift()).abs()
                     low_close = (df["low_price"] - df["close_price"].shift()).abs()
@@ -160,9 +156,7 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"ATR_{period}",
                         value=df[f"ATR_{period}"].iloc[-1],
                     )
-                logger.info(f"Расчёт индикатора atr для периодов {periods} завершён.")
-            elif indicator == "bollinger_bands":
-                for period in periods:
+                elif indicator == "bollinger_bands":
                     sma = df["close_price"].rolling(window=period).mean()
                     std = df["close_price"].rolling(window=period).std()
                     upper_band = sma + (std * 2)
@@ -181,31 +175,26 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"BB_lower_{period}",
                         value=df[f"BB_lower_{period}"].iloc[-1],
                     )
-                logger.info(
-                    f"Расчёт индикатора bollinger_bands для периодов {periods} завершён."
-                )
-            elif indicator == "macd":
-                ema_12 = df["close_price"].ewm(span=12, adjust=False).mean()
-                ema_26 = df["close_price"].ewm(span=26, adjust=False).mean()
-                macd_line = ema_12 - ema_26
-                signal_line = macd_line.ewm(span=9, adjust=False).mean()
-                df["MACD_12_26"] = macd_line
-                df["MACD_signal_9"] = signal_line
-                IndicatorData.objects.create(
-                    cryptocurrency=crypto,
-                    date=today,
-                    indicator_name="MACD_12_26",
-                    value=macd_line.iloc[-1],
-                )
-                IndicatorData.objects.create(
-                    cryptocurrency=crypto,
-                    date=today,
-                    indicator_name="MACD_signal_9",
-                    value=signal_line.iloc[-1],
-                )
-                logger.info(f"Расчёт индикатора macd завершён.")
-            elif indicator == "stochastic_oscillator":
-                for period in periods:
+                elif indicator == "macd":
+                    ema_12 = df["close_price"].ewm(span=12, adjust=False).mean()
+                    ema_26 = df["close_price"].ewm(span=26, adjust=False).mean()
+                    macd_line = ema_12 - ema_26
+                    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+                    df["MACD_12_26"] = macd_line
+                    df["MACD_signal_9"] = signal_line
+                    IndicatorData.objects.create(
+                        cryptocurrency=crypto,
+                        date=today,
+                        indicator_name="MACD_12_26",
+                        value=macd_line.iloc[-1],
+                    )
+                    IndicatorData.objects.create(
+                        cryptocurrency=crypto,
+                        date=today,
+                        indicator_name="MACD_signal_9",
+                        value=signal_line.iloc[-1],
+                    )
+                elif indicator == "stochastic_oscillator":
                     low_min = df["low_price"].rolling(window=period).min()
                     high_max = df["high_price"].rolling(window=period).max()
                     df[f"Stochastic_{period}"] = (
@@ -217,11 +206,7 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"Stochastic_{period}",
                         value=df[f"Stochastic_{period}"].iloc[-1],
                     )
-                logger.info(
-                    f"Расчёт индикатора stochastic_oscillator для периодов {periods} завершён."
-                )
-            elif indicator == "lag_macd":
-                for period in periods:
+                elif indicator == "lag_macd":
                     df[f"Lag_{period}"] = df["close_price"].shift(periods=period)
                     IndicatorData.objects.create(
                         cryptocurrency=crypto,
@@ -229,9 +214,6 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         indicator_name=f"Lag_{period}",
                         value=df[f"Lag_{period}"].iloc[-1],
                     )
-                logger.info(
-                    f"Расчёт индикатора lag_macd для периодов {periods} завершён."
-                )
 
         logger.info(
             f"Все индикаторы для криптовалюты {crypto} успешно рассчитаны и сохранены."
