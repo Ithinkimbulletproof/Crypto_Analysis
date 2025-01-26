@@ -263,7 +263,7 @@ def calculate_and_store_correlations(all_data):
         all_data[crypto] = df.loc[start_date:end_date]
 
     for crypto, df in all_data.items():
-        df["returns"] = df["close_price"].pct_change()
+        df.loc[:, "returns"] = df["close_price"].pct_change()
 
     returns_df = pd.concat(
         [df["returns"].rename(crypto) for crypto, df in all_data.items()], axis=1
