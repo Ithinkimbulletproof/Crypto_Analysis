@@ -102,6 +102,8 @@ def short_term_indicators():
         "seasonality_month_10",
         "seasonality_month_11",
         "seasonality_month_12",
+        "BTC_Correlation",
+        "ETH_Correlation",
         "value",
         "volume",
     ]

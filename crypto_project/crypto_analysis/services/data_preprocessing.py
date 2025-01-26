@@ -252,6 +252,47 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
         return df
 
 
+def calculate_and_store_correlations(all_data):
+    if "BTC/USDT" not in all_data or "ETH/USDT" not in all_data:
+        raise ValueError("Отсутствуют данные для BTC/USDT или ETH/USDT")
+
+    start_date = max(df.index.min() for df in all_data.values())
+    end_date = min(df.index.max() for df in all_data.values())
+
+    for crypto, df in all_data.items():
+        all_data[crypto] = df.loc[start_date:end_date]
+
+    for crypto, df in all_data.items():
+        df["returns"] = df["close_price"].pct_change()
+
+    returns_df = pd.concat(
+        [df["returns"].rename(crypto) for crypto, df in all_data.items()], axis=1
+    )
+
+    btc_correlation = returns_df.corrwith(returns_df["BTC/USDT"])
+    eth_correlation = returns_df.corrwith(returns_df["ETH/USDT"])
+
+    today = timezone.localtime(timezone.now()).replace(microsecond=0)
+
+    for crypto, correlation in btc_correlation.items():
+        if pd.notna(correlation):
+            IndicatorData.objects.create(
+                cryptocurrency=crypto,
+                date=today,
+                indicator_name="BTC_Correlation",
+                value=correlation,
+            )
+
+    for crypto, correlation in eth_correlation.items():
+        if pd.notna(correlation):
+            IndicatorData.objects.create(
+                cryptocurrency=crypto,
+                date=today,
+                indicator_name="ETH_Correlation",
+                value=correlation,
+            )
+
+
 def process_all_indicators():
     logger.info("Начало обработки индикаторов для списка криптовалют.")
     try:
@@ -268,12 +309,18 @@ def process_all_indicators():
             logger.info(f"Запуск обработки данных для {crypto}.")
             try:
                 df = calculate_indicators(df, crypto)
-
                 logger.info(f"Все индикаторы для {crypto} успешно рассчитаны.")
             except Exception as inner_e:
                 logger.error(
                     f"Ошибка при обработке индикаторов для {crypto}: {inner_e}"
                 )
+
+        logger.info("Запуск расчёта корреляций для всех криптовалют.")
+        try:
+            calculate_and_store_correlations(cryptos_list)
+            logger.info("Все корреляции успешно рассчитаны и сохранены.")
+        except Exception as correlation_error:
+            logger.error(f"Ошибка при расчёте корреляций: {correlation_error}")
 
     except Exception as e:
         logger.error(f"Ошибка при обработке всех индикаторов: {e}")
