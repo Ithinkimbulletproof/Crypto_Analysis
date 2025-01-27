@@ -2,7 +2,9 @@ import os
 import spacy
 import logging
 import requests
+from dateutil import parser
 from dotenv import load_dotenv
+from django.utils import timezone
 from datetime import datetime, timedelta
 from crypto_analysis.models import NewsArticle
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -130,6 +132,10 @@ def gather_and_analyze_news(query="cryptocurrency"):
         published_at = article.get("publishedAt")
         source = article.get("source", "")
         language = article.get("language", "en")
+
+        if published_at:
+            published_at = parser.parse(published_at)
+            published_at = timezone.localtime(published_at)
 
         if NewsArticle.objects.filter(url=url).exists():
             logger.info(f"Новость уже существует: {title}")

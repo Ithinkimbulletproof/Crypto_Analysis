@@ -1,8 +1,9 @@
 import logging
-import calendar
 import pandas as pd
+import time
 from dotenv import load_dotenv
 from django.utils import timezone
+from django.db.models import Max
 from crypto_analysis.models import IndicatorData, MarketData
 
 load_dotenv()
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_data_for_all_cryptos():
+    start_time = time.time()
     try:
         cryptos = MarketData.objects.values_list("cryptocurrency", flat=True).distinct()
         cryptos_list = list(cryptos)
@@ -24,19 +26,31 @@ def get_data_for_all_cryptos():
             if not crypto:
                 logger.warning("Пустое имя криптовалюты. Пропускаем.")
                 continue
+
+            last_processed = IndicatorData.objects.filter(
+                cryptocurrency=crypto
+            ).aggregate(last_date=Max('date'))['last_date']
+
+            start_date = last_processed if last_processed else timezone.now() - timezone.timedelta(days=730)
+
             data_all = (
-                MarketData.objects.filter(cryptocurrency=crypto)
+                MarketData.objects.filter(
+                    cryptocurrency=crypto,
+                    date__gt=start_date
+                )
                 .order_by("date")
                 .values_list(
                     "date", "close_price", "high_price", "low_price", "cryptocurrency"
                 )
             )
+
             logger.info(
                 f"Получено {len(data_all)} записей для {crypto}. Пример: {data_all[:1]}."
             )
             if len(data_all) == 0:
                 logger.warning(f"Нет данных для {crypto}. Пропускаю.")
                 continue
+
             df = pd.DataFrame(
                 data_all,
                 columns=[
@@ -49,16 +63,21 @@ def get_data_for_all_cryptos():
             )
             df["date"] = pd.to_datetime(df["date"])
             df.set_index("date", inplace=True)
-            logger.debug(f"Данные для {crypto} успешно преобразованы в DataFrame.")
+
+            df = df.resample('h').last()
+            df = df[~df.index.duplicated(keep='last')]
+
             all_data[crypto] = df
 
+        logger.info(f"Данные получены за {time.time() - start_time:.2f} сек.")
         return all_data
     except Exception as e:
-        logger.error(f"Ошибка при получении данных для криптовалют: {e}")
+        logger.error(f"Ошибка при получении данных: {e} (затрачено {time.time() - start_time:.2f} сек.)")
         return {}
 
 
 def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
+    start_time = time.time()
     try:
         indicators = {
             "price_change": [1, 7, 14, 30],
@@ -73,54 +92,27 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
             "lag_macd": [12, 26, 9],
         }
 
-        today = timezone.localtime(timezone.now()).replace(microsecond=0)
-        excluded_columns = {"cryptocurrency", "high_price", "low_price", "close_price"}
+        indicator_data_objects = []
 
         for indicator, periods in indicators.items():
             for period in periods if periods else [None]:
-                existing_indicator = IndicatorData.objects.filter(
-                    cryptocurrency=crypto,
-                    indicator_name=(
-                        f"{indicator}_{period}" if period else f"{indicator}"
-                    ),
-                    date__gte=today - timezone.timedelta(days=730),
-                ).first()
-
-                if existing_indicator:
-                    logger.info(
-                        f"Индикатор {indicator} за {period} дней уже рассчитан."
+                if period and len(df) < period:
+                    logger.warning(
+                        f"Недостаточно данных для расчета индикатора {indicator} за {period} дней для {crypto}."
                     )
                     continue
 
                 if indicator == "price_change":
                     df[f"price_change_{period}d"] = (
-                        df["close_price"].pct_change(periods=period) * 100
-                    )
-                    IndicatorData.objects.create(
-                        cryptocurrency=crypto,
-                        date=today,
-                        indicator_name=f"price_change_{period}d",
-                        value=df[f"price_change_{period}d"].iloc[-1],
+                        df["close_price"].pct_change(periods=period, fill_method=None) * 100
                     )
                 elif indicator == "sma":
                     df[f"SMA_{period}"] = (
                         df["close_price"].rolling(window=period).mean()
                     )
-                    IndicatorData.objects.create(
-                        cryptocurrency=crypto,
-                        date=today,
-                        indicator_name=f"SMA_{period}",
-                        value=df[f"SMA_{period}"].iloc[-1],
-                    )
                 elif indicator == "volatility":
                     df[f"volatility_{period}d"] = (
                         df["close_price"].rolling(window=period).std()
-                    )
-                    IndicatorData.objects.create(
-                        cryptocurrency=crypto,
-                        date=today,
-                        indicator_name=f"volatility_{period}d",
-                        value=df[f"volatility_{period}d"].iloc[-1],
                     )
                 elif indicator == "rsi":
                     delta = df["close_price"].diff()
@@ -128,12 +120,6 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
                     rs = gain / (loss.replace(0, 1e-10))
                     df[f"RSI_{period}d"] = 100 - (100 / (1 + rs))
-                    IndicatorData.objects.create(
-                        cryptocurrency=crypto,
-                        date=today,
-                        indicator_name=f"RSI_{period}d",
-                        value=df[f"RSI_{period}d"].iloc[-1],
-                    )
                 elif indicator == "cci":
                     tp = (df["high_price"] + df["low_price"] + df["close_price"]) / 3
                     sma_tp = tp.rolling(window=period).mean()
@@ -141,12 +127,6 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         lambda x: (x - x.mean()).abs().mean(), raw=False
                     )
                     df[f"CCI_{period}d"] = (tp - sma_tp) / (0.015 * mean_deviation)
-                    IndicatorData.objects.create(
-                        cryptocurrency=crypto,
-                        date=today,
-                        indicator_name=f"CCI_{period}d",
-                        value=df[f"CCI_{period}d"].iloc[-1],
-                    )
                 elif indicator == "atr":
                     high_low = df["high_price"] - df["low_price"]
                     high_close = (df["high_price"] - df["close_price"].shift()).abs()
@@ -155,12 +135,6 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                         axis=1
                     )
                     df[f"ATR_{period}"] = tr.rolling(window=period).mean()
-                    IndicatorData.objects.create(
-                        cryptocurrency=crypto,
-                        date=today,
-                        indicator_name=f"ATR_{period}",
-                        value=df[f"ATR_{period}"].iloc[-1],
-                    )
                 elif indicator == "bollinger_bands":
                     sma = df["close_price"].rolling(window=period).mean()
                     std = df["close_price"].rolling(window=period).std()
@@ -168,18 +142,6 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                     lower_band = sma - (std * 2)
                     df[f"BB_upper_{period}"] = upper_band
                     df[f"BB_lower_{period}"] = lower_band
-                    IndicatorData.objects.create(
-                        cryptocurrency=crypto,
-                        date=today,
-                        indicator_name=f"BB_upper_{period}",
-                        value=df[f"BB_upper_{period}"].iloc[-1],
-                    )
-                    IndicatorData.objects.create(
-                        cryptocurrency=crypto,
-                        date=today,
-                        indicator_name=f"BB_lower_{period}",
-                        value=df[f"BB_lower_{period}"].iloc[-1],
-                    )
                 elif indicator == "macd":
                     ema_12 = df["close_price"].ewm(span=12, adjust=False).mean()
                     ema_26 = df["close_price"].ewm(span=26, adjust=False).mean()
@@ -187,113 +149,104 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                     signal_line = macd_line.ewm(span=9, adjust=False).mean()
                     df["MACD_12_26"] = macd_line
                     df["MACD_signal_9"] = signal_line
-                    IndicatorData.objects.create(
-                        cryptocurrency=crypto,
-                        date=today,
-                        indicator_name="MACD_12_26",
-                        value=macd_line.iloc[-1],
-                    )
-                    IndicatorData.objects.create(
-                        cryptocurrency=crypto,
-                        date=today,
-                        indicator_name="MACD_signal_9",
-                        value=signal_line.iloc[-1],
-                    )
                 elif indicator == "stochastic_oscillator":
                     low_min = df["low_price"].rolling(window=period).min()
                     high_max = df["high_price"].rolling(window=period).max()
                     df[f"Stochastic_{period}"] = (
                         100 * (df["close_price"] - low_min) / (high_max - low_min)
                     )
-                    IndicatorData.objects.create(
-                        cryptocurrency=crypto,
-                        date=today,
-                        indicator_name=f"Stochastic_{period}",
-                        value=df[f"Stochastic_{period}"].iloc[-1],
-                    )
                 elif indicator == "lag_macd":
                     df[f"Lag_{period}"] = df["close_price"].shift(periods=period)
-                    IndicatorData.objects.create(
-                        cryptocurrency=crypto,
-                        date=today,
-                        indicator_name=f"Lag_{period}",
-                        value=df[f"Lag_{period}"].iloc[-1],
+
+        for index, row in df.iterrows():
+            for col in df.columns:
+                if col not in ["cryptocurrency", "high_price", "low_price", "close_price"]:
+                    indicator_data_objects.append(
+                        IndicatorData(
+                            cryptocurrency=crypto,
+                            date=index,
+                            indicator_name=col,
+                            value=row[col],
+                        )
                     )
 
-        df["month"] = df.index.month
-        df["day_of_week"] = df.index.dayofweek.map(lambda x: calendar.day_name[x])
+        if indicator_data_objects:
+            IndicatorData.objects.bulk_create(indicator_data_objects, batch_size=1000)
+            logger.info(f"Все индикаторы для криптовалюты {crypto} успешно рассчитаны и сохранены.")
+        else:
+            logger.warning(f"Нет данных для сохранения индикаторов для {crypto}.")
 
-        monthly_seasonality = df.groupby("month")["close_price"].mean()
-        for month, avg_price in monthly_seasonality.items():
-            IndicatorData.objects.create(
-                cryptocurrency=crypto,
-                date=today,
-                indicator_name=f"seasonality_month_{month}",
-                value=avg_price,
-            )
-            logger.info(f"Сезонность (месяц {month}): {avg_price:.2f}")
-
-        weekly_seasonality = df.groupby("day_of_week")["close_price"].mean()
-        for day, avg_price in weekly_seasonality.items():
-            IndicatorData.objects.create(
-                cryptocurrency=crypto,
-                date=today,
-                indicator_name=f"seasonality_weekday_{day}",
-                value=avg_price,
-            )
-            logger.info(f"Сезонность (день недели {day}): {avg_price:.2f}")
-
-        logger.info(
-            f"Все индикаторы для криптовалюты {crypto} успешно рассчитаны и сохранены."
-        )
+        logger.info(f"Индикаторы для {crypto} рассчитаны за {time.time() - start_time:.2f} сек.")
         return df
     except Exception as e:
-        logger.error(f"Ошибка при расчёте и сохранении индикаторов: {e}")
+        logger.error(f"Ошибка расчета индикаторов: {e} (затрачено {time.time() - start_time:.2f} сек.)")
         return df
 
 
 def calculate_and_store_correlations(all_data):
-    if "BTC/USDT" not in all_data or "ETH/USDT" not in all_data:
-        raise ValueError("Отсутствуют данные для BTC/USDT или ETH/USDT")
+    start_time = time.time()
+    try:
+        if "BTC/USDT" not in all_data or "ETH/USDT" not in all_data:
+            raise ValueError("Отсутствуют данные для BTC/USDT или ETH/USDT")
 
-    start_date = max(df.index.min() for df in all_data.values())
-    end_date = min(df.index.max() for df in all_data.values())
+        last_correlation = IndicatorData.objects.filter(
+            indicator_name__in=["BTC_Correlation", "ETH_Correlation"]
+        ).aggregate(last_date=Max('date'))['last_date']
 
-    for crypto, df in all_data.items():
-        all_data[crypto] = df.loc[start_date:end_date]
+        end_date = timezone.now()
+        start_date = last_correlation if last_correlation else end_date - timezone.timedelta(days=730)
 
-    for crypto, df in all_data.items():
-        df.loc[:, "returns"] = df["close_price"].pct_change()
+        for crypto, df in all_data.items():
+            all_data[crypto] = df.loc[start_date:end_date]
 
-    returns_df = pd.concat(
-        [df["returns"].rename(crypto) for crypto, df in all_data.items()], axis=1
-    )
+        correlation_data_objects = []
 
-    btc_correlation = returns_df.corrwith(returns_df["BTC/USDT"])
-    eth_correlation = returns_df.corrwith(returns_df["ETH/USDT"])
+        for crypto, df in all_data.items():
+            df["returns"] = df["close_price"].pct_change(fill_method=None)
 
-    today = timezone.localtime(timezone.now()).replace(microsecond=0)
+        returns_df = pd.concat(
+            [df["returns"].rename(crypto) for crypto, df in all_data.items()], axis=1
+        )
 
-    for crypto, correlation in btc_correlation.items():
-        if pd.notna(correlation):
-            IndicatorData.objects.create(
-                cryptocurrency=crypto,
-                date=today,
-                indicator_name="BTC_Correlation",
-                value=correlation,
-            )
+        btc_correlation = returns_df.corrwith(returns_df["BTC/USDT"])
+        eth_correlation = returns_df.corrwith(returns_df["ETH/USDT"])
 
-    for crypto, correlation in eth_correlation.items():
-        if pd.notna(correlation):
-            IndicatorData.objects.create(
-                cryptocurrency=crypto,
-                date=today,
-                indicator_name="ETH_Correlation",
-                value=correlation,
-            )
+        for date, row in returns_df.iterrows():
+            for crypto, correlation in btc_correlation.items():
+                if pd.notna(correlation):
+                    correlation_data_objects.append(
+                        IndicatorData(
+                            cryptocurrency=crypto,
+                            date=date,
+                            indicator_name="BTC_Correlation",
+                            value=correlation,
+                        )
+                    )
+
+            for crypto, correlation in eth_correlation.items():
+                if pd.notna(correlation):
+                    correlation_data_objects.append(
+                        IndicatorData(
+                            cryptocurrency=crypto,
+                            date=date,
+                            indicator_name="ETH_Correlation",
+                            value=correlation,
+                        )
+                    )
+
+        if correlation_data_objects:
+            IndicatorData.objects.bulk_create(correlation_data_objects, batch_size=1000)
+            logger.info("Корреляции успешно рассчитаны и сохранены для каждого часа.")
+        else:
+            logger.warning("Нет данных для сохранения корреляций.")
+
+        logger.info(f"Корреляции рассчитаны за {time.time() - start_time:.2f} сек.")
+    except Exception as e:
+        logger.error(f"Ошибка при расчёте и сохранении корреляций: {e} (затрачено {time.time() - start_time:.2f} сек.)")
 
 
 def process_all_indicators():
+    start_time = time.time()
     logger.info("Начало обработки индикаторов для списка криптовалют.")
     try:
         cryptos_list = get_data_for_all_cryptos()
@@ -324,7 +277,7 @@ def process_all_indicators():
 
     except Exception as e:
         logger.error(f"Ошибка при обработке всех индикаторов: {e}")
-    logger.info("Обработка всех индикаторов завершена.")
+    logger.info(f"Обработка всех индикаторов завершена за {time.time() - start_time:.2f} сек.")
 
 
 if __name__ == "__main__":
