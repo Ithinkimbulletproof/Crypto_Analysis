@@ -17,7 +17,13 @@ logger = logging.getLogger(__name__)
 def get_data_for_all_cryptos():
     start_time = time.time()
     try:
-        cryptos = MarketData.objects.values_list("cryptocurrency", flat=True).distinct()
+        start_date_limit = timezone.now() - timezone.timedelta(days=1000)
+
+        cryptos = (
+            MarketData.objects.filter(date__gte=start_date_limit)
+            .values_list("cryptocurrency", flat=True)
+            .distinct()
+        )
         cryptos_list = list(cryptos)
 
         all_data = {}
@@ -221,7 +227,7 @@ def calculate_and_store_correlations(all_data):
         correlation_data_objects = []
 
         for crypto, df in all_data.items():
-            df["returns"] = df["close_price"].pct_change(fill_method=None)
+            df.loc[:, "returns"] = df["close_price"].pct_change(fill_method=None)
 
         returns_df = pd.concat(
             [df["returns"].rename(crypto) for crypto, df in all_data.items()], axis=1

@@ -46,19 +46,23 @@ def fetch_news(query, language="en", page_size=100, days=3):
 
     all_articles = []
     page = 1
+    url = "https://newsapi.org/v2/everything"
+    headers = {
+        "Authorization": f"Bearer {NEWS_API_KEY}",
+        "User-Agent": "crypto-analysis/1.0",
+    }
+
     while True:
         try:
-            url = "https://newsapi.org/v2/everything"
             params = {
                 "q": query,
-                "apiKey": NEWS_API_KEY,
                 "language": language,
                 "pageSize": page_size,
                 "page": page,
                 "from": start_date.strftime("%Y-%m-%d"),
                 "to": end_date.strftime("%Y-%m-%d"),
             }
-            response = requests.get(url, params=params)
+            response = requests.get(url, params=params, headers=headers)
             response.raise_for_status()
 
             news_data = response.json()
@@ -138,13 +142,11 @@ def gather_and_analyze_news(query="cryptocurrency OR BTC OR ETH OR crypto market
             published_at = timezone.localtime(published_at)
 
         if NewsArticle.objects.filter(url=url).exists():
-            logger.info(f"Новость уже существует: {title}")
             continue
 
         sentiment, polarity = analyze_sentiment(title + " " + description)
 
         if sentiment == "NEGATIVE" and polarity < -0.5:
-            logger.info(f"Отфильтрована негативная новость: {title}")
             continue
 
         news_article = NewsArticle.objects.create(
@@ -158,13 +160,6 @@ def gather_and_analyze_news(query="cryptocurrency OR BTC OR ETH OR crypto market
             language=language,
         )
 
-        logger.info(f"Новость: {title}, Сентимент: {sentiment}, Полярность: {polarity}")
-
     key_events = extract_key_events(news)
-    if key_events:
-        for event in key_events:
-            logger.info(f"Ключевое событие: {event['title']}, {event['key_event']}")
-    else:
-        logger.info("Нет ключевых событий.")
 
     return news, key_events
