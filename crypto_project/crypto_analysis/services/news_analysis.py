@@ -118,7 +118,7 @@ def extract_key_events(news):
     return key_events
 
 
-def gather_and_analyze_news(query="cryptocurrency"):
+def gather_and_analyze_news(query="cryptocurrency OR BTC OR ETH OR crypto market"):
     news = fetch_news(query)
 
     if not news:
@@ -168,8 +168,3 @@ def gather_and_analyze_news(query="cryptocurrency"):
         logger.info("Нет ключевых событий.")
 
     return news, key_events
-
-
-if __name__ == "__main__":
-    query = "cryptocurrency OR BTC OR ETH OR crypto market"
-    news, key_events = gather_and_analyze_news(query)

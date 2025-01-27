@@ -29,15 +29,16 @@ def get_data_for_all_cryptos():
 
             last_processed = IndicatorData.objects.filter(
                 cryptocurrency=crypto
-            ).aggregate(last_date=Max('date'))['last_date']
+            ).aggregate(last_date=Max("date"))["last_date"]
 
-            start_date = last_processed if last_processed else timezone.now() - timezone.timedelta(days=730)
+            start_date = (
+                last_processed
+                if last_processed
+                else timezone.now() - timezone.timedelta(days=730)
+            )
 
             data_all = (
-                MarketData.objects.filter(
-                    cryptocurrency=crypto,
-                    date__gt=start_date
-                )
+                MarketData.objects.filter(cryptocurrency=crypto, date__gt=start_date)
                 .order_by("date")
                 .values_list(
                     "date", "close_price", "high_price", "low_price", "cryptocurrency"
@@ -64,15 +65,17 @@ def get_data_for_all_cryptos():
             df["date"] = pd.to_datetime(df["date"])
             df.set_index("date", inplace=True)
 
-            df = df.resample('h').last()
-            df = df[~df.index.duplicated(keep='last')]
+            df = df.resample("h").last()
+            df = df[~df.index.duplicated(keep="last")]
 
             all_data[crypto] = df
 
         logger.info(f"Данные получены за {time.time() - start_time:.2f} сек.")
         return all_data
     except Exception as e:
-        logger.error(f"Ошибка при получении данных: {e} (затрачено {time.time() - start_time:.2f} сек.)")
+        logger.error(
+            f"Ошибка при получении данных: {e} (затрачено {time.time() - start_time:.2f} сек.)"
+        )
         return {}
 
 
@@ -104,7 +107,8 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
 
                 if indicator == "price_change":
                     df[f"price_change_{period}d"] = (
-                        df["close_price"].pct_change(periods=period, fill_method=None) * 100
+                        df["close_price"].pct_change(periods=period, fill_method=None)
+                        * 100
                     )
                 elif indicator == "sma":
                     df[f"SMA_{period}"] = (
@@ -160,7 +164,12 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
 
         for index, row in df.iterrows():
             for col in df.columns:
-                if col not in ["cryptocurrency", "high_price", "low_price", "close_price"]:
+                if col not in [
+                    "cryptocurrency",
+                    "high_price",
+                    "low_price",
+                    "close_price",
+                ]:
                     indicator_data_objects.append(
                         IndicatorData(
                             cryptocurrency=crypto,
@@ -172,14 +181,20 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
 
         if indicator_data_objects:
             IndicatorData.objects.bulk_create(indicator_data_objects, batch_size=1000)
-            logger.info(f"Все индикаторы для криптовалюты {crypto} успешно рассчитаны и сохранены.")
+            logger.info(
+                f"Все индикаторы для криптовалюты {crypto} успешно рассчитаны и сохранены."
+            )
         else:
             logger.warning(f"Нет данных для сохранения индикаторов для {crypto}.")
 
-        logger.info(f"Индикаторы для {crypto} рассчитаны за {time.time() - start_time:.2f} сек.")
+        logger.info(
+            f"Индикаторы для {crypto} рассчитаны за {time.time() - start_time:.2f} сек."
+        )
         return df
     except Exception as e:
-        logger.error(f"Ошибка расчета индикаторов: {e} (затрачено {time.time() - start_time:.2f} сек.)")
+        logger.error(
+            f"Ошибка расчета индикаторов: {e} (затрачено {time.time() - start_time:.2f} сек.)"
+        )
         return df
 
 
@@ -191,10 +206,14 @@ def calculate_and_store_correlations(all_data):
 
         last_correlation = IndicatorData.objects.filter(
             indicator_name__in=["BTC_Correlation", "ETH_Correlation"]
-        ).aggregate(last_date=Max('date'))['last_date']
+        ).aggregate(last_date=Max("date"))["last_date"]
 
         end_date = timezone.now()
-        start_date = last_correlation if last_correlation else end_date - timezone.timedelta(days=730)
+        start_date = (
+            last_correlation
+            if last_correlation
+            else end_date - timezone.timedelta(days=730)
+        )
 
         for crypto, df in all_data.items():
             all_data[crypto] = df.loc[start_date:end_date]
@@ -242,7 +261,9 @@ def calculate_and_store_correlations(all_data):
 
         logger.info(f"Корреляции рассчитаны за {time.time() - start_time:.2f} сек.")
     except Exception as e:
-        logger.error(f"Ошибка при расчёте и сохранении корреляций: {e} (затрачено {time.time() - start_time:.2f} сек.)")
+        logger.error(
+            f"Ошибка при расчёте и сохранении корреляций: {e} (затрачено {time.time() - start_time:.2f} сек.)"
+        )
 
 
 def process_all_indicators():
@@ -277,7 +298,9 @@ def process_all_indicators():
 
     except Exception as e:
         logger.error(f"Ошибка при обработке всех индикаторов: {e}")
-    logger.info(f"Обработка всех индикаторов завершена за {time.time() - start_time:.2f} сек.")
+    logger.info(
+        f"Обработка всех индикаторов завершена за {time.time() - start_time:.2f} сек."
+    )
 
 
 if __name__ == "__main__":

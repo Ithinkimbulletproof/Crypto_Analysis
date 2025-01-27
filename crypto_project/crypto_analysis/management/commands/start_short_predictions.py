@@ -3,6 +3,7 @@ import logging
 from django.core.management.base import BaseCommand
 from crypto_analysis.services.data_fetcher import fetch_data
 from crypto_analysis.services.data_preprocessing import process_all_indicators
+from crypto_analysis.services.news_analysis import gather_and_analyze_news
 from crypto_analysis.services.short_predictions import run_short_predictions
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,9 @@ class Command(BaseCommand):
             fetch_data()
             time_used = time.time() - start_time
             self.stdout.write(
-                self.style.SUCCESS(f"Данные успешно получены и сохранены за {time_used:.2f} секунд")
+                self.style.SUCCESS(
+                    f"Данные успешно получены и сохранены за {time_used:.2f} секунд"
+                )
             )
 
             self.stdout.write(self.style.SUCCESS("Запуск обработки индикаторов..."))
@@ -29,7 +32,20 @@ class Command(BaseCommand):
             process_all_indicators()
             time_used = time.time() - start_time
             self.stdout.write(
-                self.style.SUCCESS(f"Все индикаторы успешно рассчитаны за {time_used:.2f} секунд")
+                self.style.SUCCESS(
+                    f"Все индикаторы успешно рассчитаны за {time_used:.2f} секунд"
+                )
+            )
+
+            self.stdout.write(self.style.SUCCESS("Запуск анализа новостей..."))
+            start_time = time.time()
+            query = "cryptocurrency OR BTC OR ETH OR crypto market"
+            gather_and_analyze_news(query)
+            time_used = time.time() - start_time
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Все новости успешно проанализированы за {time_used:.2f} секунд"
+                )
             )
 
             self.stdout.write(self.style.SUCCESS("Запуск расчёта предсказаний..."))
@@ -37,12 +53,16 @@ class Command(BaseCommand):
             run_short_predictions()
             time_used = time.time() - start_time
             self.stdout.write(
-                self.style.SUCCESS(f"Все предсказания рассчитаны за {time_used:.2f} секунд")
+                self.style.SUCCESS(
+                    f"Все предсказания рассчитаны за {time_used:.2f} секунд"
+                )
             )
 
             total_time = time.time() - start_total_time
             self.stdout.write(
-                self.style.SUCCESS(f"Полное время выполнения команды: {total_time:.2f} секунд")
+                self.style.SUCCESS(
+                    f"Полное время выполнения команды: {total_time:.2f} секунд"
+                )
             )
 
         except Exception as e:
