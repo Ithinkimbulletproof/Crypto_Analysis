@@ -25,59 +25,71 @@ def load_market_and_indicator_data(selected_indicators=None):
         market_data = MarketData.objects.filter(
             date__gte=now - timezone.timedelta(days=3 * 365)
         ).values(
-            "cryptocurrency", "date", "open_price", "high_price", "low_price", "close_price", "volume", "exchange"
+            "cryptocurrency",
+            "date",
+            "open_price",
+            "high_price",
+            "low_price",
+            "close_price",
+            "volume",
+            "exchange",
         )
         df_market = pd.DataFrame(market_data)
-        df_market['date'] = pd.to_datetime(df_market['date'], utc=True).dt.tz_localize(None)
+        df_market["date"] = pd.to_datetime(df_market["date"], utc=True).dt.tz_localize(
+            None
+        )
         logger.info(f"Загружено MarketData: {df_market.shape}")
 
         indicator_data = IndicatorData.objects.filter(
             date__gte=now - timezone.timedelta(days=2 * 365)
-        ).values(
-            "cryptocurrency", "date", "indicator_name", "value"
-        )
+        ).values("cryptocurrency", "date", "indicator_name", "value")
         if selected_indicators:
-            indicator_data = indicator_data.filter(indicator_name__in=selected_indicators)
+            indicator_data = indicator_data.filter(
+                indicator_name__in=selected_indicators
+            )
         df_indicators = pd.DataFrame(indicator_data)
-        df_indicators['date'] = pd.to_datetime(df_indicators['date'], utc=True).dt.tz_localize(None)
+        df_indicators["date"] = pd.to_datetime(
+            df_indicators["date"], utc=True
+        ).dt.tz_localize(None)
         logger.info(f"Загружено IndicatorData: {df_indicators.shape}")
 
         df_indicators_wide = df_indicators.pivot(
-            index=['cryptocurrency', 'date'],
-            columns='indicator_name',
-            values='value'
+            index=["cryptocurrency", "date"], columns="indicator_name", values="value"
         ).reset_index()
-        logger.info(f"Преобразование индикаторов в широкий формат: {df_indicators_wide.shape}")
+        logger.info(
+            f"Преобразование индикаторов в широкий формат: {df_indicators_wide.shape}"
+        )
 
         news_data = NewsArticle.objects.filter(
             published_at__gte=now - timezone.timedelta(days=3)
-        ).values(
-            "published_at", "title", "description", "sentiment", "polarity"
-        )
+        ).values("published_at", "title", "description", "sentiment", "polarity")
         df_news = pd.DataFrame(news_data)
-        df_news.rename(columns={'published_at': 'date'}, inplace=True)
-        df_news['date'] = pd.to_datetime(df_news['date'], utc=True).dt.tz_localize(None).dt.floor('h')
+        df_news.rename(columns={"published_at": "date"}, inplace=True)
+        df_news["date"] = (
+            pd.to_datetime(df_news["date"], utc=True).dt.tz_localize(None).dt.floor("h")
+        )
         logger.info(f"Загружено NewsArticle: {df_news.shape}")
 
         df_combined = pd.merge(
-            df_indicators_wide,
-            df_market,
-            on=['cryptocurrency', 'date'],
-            how='inner'
+            df_indicators_wide, df_market, on=["cryptocurrency", "date"], how="inner"
         )
-        logger.info(f"После объединения MarketData и IndicatorData: {df_combined.shape}")
+        logger.info(
+            f"После объединения MarketData и IndicatorData: {df_combined.shape}"
+        )
 
         df_combined = pd.merge_asof(
-            df_combined.sort_values('date'),
-            df_news.sort_values('date'),
-            on='date',
-            direction='nearest',
-            tolerance=pd.Timedelta('1h')
+            df_combined.sort_values("date"),
+            df_news.sort_values("date"),
+            on="date",
+            direction="nearest",
+            tolerance=pd.Timedelta("1h"),
         )
         logger.info(f"После объединения с новостями: {df_combined.shape}")
 
         if df_combined.isnull().any(axis=1).any():
-            logger.warning(f"Обнаружены строки с пропущенными значениями: {df_combined.isnull().sum()}")
+            logger.warning(
+                f"Обнаружены строки с пропущенными значениями: {df_combined.isnull().sum()}"
+            )
 
         return df_combined
 

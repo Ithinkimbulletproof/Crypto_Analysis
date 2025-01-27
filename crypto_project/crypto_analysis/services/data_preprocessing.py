@@ -1,10 +1,16 @@
 import logging
 import pandas as pd
 import time
+import asyncio
+import platform
+
+if platform.system() == "Windows":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 from dotenv import load_dotenv
 from django.utils import timezone
 from django.db.models import Max
 from crypto_analysis.models import IndicatorData, MarketData
+from asgiref.sync import sync_to_async
 
 load_dotenv()
 
@@ -13,80 +19,97 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+async_get_cryptos = sync_to_async(
+    lambda: list(
+        MarketData.objects.filter(
+            date__gte=timezone.now() - timezone.timedelta(days=1000)
+        )
+        .values_list("cryptocurrency", flat=True)
+        .distinct()
+    )
+)
 
-def get_data_for_all_cryptos():
+async_get_last_processed = sync_to_async(
+    lambda crypto: IndicatorData.objects.filter(cryptocurrency=crypto).aggregate(
+        last_date=Max("date")
+    )["last_date"]
+)
+
+async_get_market_data = sync_to_async(
+    lambda crypto, start_date: list(
+        MarketData.objects.filter(cryptocurrency=crypto, date__gt=start_date)
+        .order_by("date")
+        .values_list("date", "close_price", "high_price", "low_price", "cryptocurrency")
+    )
+)
+
+async_bulk_create = sync_to_async(IndicatorData.objects.bulk_create)
+
+
+async def get_data_for_crypto(crypto: str) -> tuple[str, pd.DataFrame] | None:
+    try:
+        logger.info(f"Запрос данных для {crypto} из базы данных.")
+        if not crypto:
+            logger.warning("Пустое имя криптовалюты. Пропускаем.")
+            return None
+
+        last_processed = await async_get_last_processed(crypto)
+        start_date = (
+            last_processed
+            if last_processed
+            else timezone.now() - timezone.timedelta(days=730)
+        )
+
+        data_all = await async_get_market_data(crypto, start_date)
+
+        logger.info(f"Получено {len(data_all)} записей для {crypto}.")
+        if not data_all:
+            logger.warning(f"Нет данных для {crypto}. Пропускаю.")
+            return None
+
+        df = pd.DataFrame(
+            data_all,
+            columns=[
+                "date",
+                "close_price",
+                "high_price",
+                "low_price",
+                "cryptocurrency",
+            ],
+        )
+        df["date"] = pd.to_datetime(df["date"])
+        df.set_index("date", inplace=True)
+
+        df = df.resample("h").last()
+        df = df[~df.index.duplicated(keep="last")]
+
+        return (crypto, df)
+    except Exception as e:
+        logger.error(f"Ошибка при получении данных для {crypto}: {e}")
+        return None
+
+
+async def get_data_for_all_cryptos() -> dict:
     start_time = time.time()
     try:
-        start_date_limit = timezone.now() - timezone.timedelta(days=1000)
-
-        cryptos = (
-            MarketData.objects.filter(date__gte=start_date_limit)
-            .values_list("cryptocurrency", flat=True)
-            .distinct()
-        )
-        cryptos_list = list(cryptos)
+        cryptos = await async_get_cryptos()
+        tasks = [get_data_for_crypto(crypto) for crypto in cryptos]
+        results = await asyncio.gather(*tasks)
 
         all_data = {}
-        for crypto in cryptos_list:
-            logger.info(f"Запрос данных для {crypto} из базы данных.")
-            if not crypto:
-                logger.warning("Пустое имя криптовалюты. Пропускаем.")
-                continue
-
-            last_processed = IndicatorData.objects.filter(
-                cryptocurrency=crypto
-            ).aggregate(last_date=Max("date"))["last_date"]
-
-            start_date = (
-                last_processed
-                if last_processed
-                else timezone.now() - timezone.timedelta(days=730)
-            )
-
-            data_all = (
-                MarketData.objects.filter(cryptocurrency=crypto, date__gt=start_date)
-                .order_by("date")
-                .values_list(
-                    "date", "close_price", "high_price", "low_price", "cryptocurrency"
-                )
-            )
-
-            logger.info(
-                f"Получено {len(data_all)} записей для {crypto}. Пример: {data_all[:1]}."
-            )
-            if len(data_all) == 0:
-                logger.warning(f"Нет данных для {crypto}. Пропускаю.")
-                continue
-
-            df = pd.DataFrame(
-                data_all,
-                columns=[
-                    "date",
-                    "close_price",
-                    "high_price",
-                    "low_price",
-                    "cryptocurrency",
-                ],
-            )
-            df["date"] = pd.to_datetime(df["date"])
-            df.set_index("date", inplace=True)
-
-            df = df.resample("h").last()
-            df = df[~df.index.duplicated(keep="last")]
-
-            all_data[crypto] = df
+        for result in results:
+            if result:
+                crypto, df = result
+                all_data[crypto] = df
 
         logger.info(f"Данные получены за {time.time() - start_time:.2f} сек.")
         return all_data
     except Exception as e:
-        logger.error(
-            f"Ошибка при получении данных: {e} (затрачено {time.time() - start_time:.2f} сек.)"
-        )
+        logger.error(f"Ошибка при получении данных: {e}")
         return {}
 
 
-def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
-    start_time = time.time()
+def calculate_indicators_sync(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
     try:
         indicators = {
             "price_change": [1, 7, 14, 30],
@@ -101,14 +124,9 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
             "lag_macd": [12, 26, 9],
         }
 
-        indicator_data_objects = []
-
         for indicator, periods in indicators.items():
             for period in periods if periods else [None]:
                 if period and len(df) < period:
-                    logger.warning(
-                        f"Недостаточно данных для расчета индикатора {indicator} за {period} дней для {crypto}."
-                    )
                     continue
 
                 if indicator == "price_change":
@@ -168,51 +186,53 @@ def calculate_indicators(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                 elif indicator == "lag_macd":
                     df[f"Lag_{period}"] = df["close_price"].shift(periods=period)
 
-        for index, row in df.iterrows():
-            for col in df.columns:
-                if col not in [
-                    "cryptocurrency",
-                    "high_price",
-                    "low_price",
-                    "close_price",
-                ]:
-                    indicator_data_objects.append(
-                        IndicatorData(
-                            cryptocurrency=crypto,
-                            date=index,
-                            indicator_name=col,
-                            value=row[col],
-                        )
-                    )
-
-        if indicator_data_objects:
-            IndicatorData.objects.bulk_create(indicator_data_objects, batch_size=1000)
-            logger.info(
-                f"Все индикаторы для криптовалюты {crypto} успешно рассчитаны и сохранены."
-            )
-        else:
-            logger.warning(f"Нет данных для сохранения индикаторов для {crypto}.")
-
-        logger.info(
-            f"Индикаторы для {crypto} рассчитаны за {time.time() - start_time:.2f} сек."
-        )
         return df
     except Exception as e:
-        logger.error(
-            f"Ошибка расчета индикаторов: {e} (затрачено {time.time() - start_time:.2f} сек.)"
-        )
+        logger.error(f"Ошибка расчета индикаторов: {e}")
         return df
 
 
-def calculate_and_store_correlations(all_data):
+async def calculate_indicators_for_crypto(crypto: str, df: pd.DataFrame) -> None:
+    start_time = time.time()
+    try:
+        df = await asyncio.to_thread(calculate_indicators_sync, df.copy(), crypto)
+
+        indicator_data_objects = [
+            IndicatorData(
+                cryptocurrency=crypto,
+                date=index,
+                indicator_name=col,
+                value=row[col],
+            )
+            for index, row in df.iterrows()
+            for col in df.columns
+            if col not in ["cryptocurrency", "high_price", "low_price", "close_price"]
+        ]
+
+        if indicator_data_objects:
+            await async_bulk_create(indicator_data_objects, batch_size=1000)
+            logger.info(f"Индикаторы для {crypto} сохранены")
+        else:
+            logger.warning(f"Нет данных для сохранения ({crypto})")
+
+        logger.info(
+            f"Индикаторы для {crypto} обработаны за {time.time() - start_time:.2f} сек."
+        )
+    except Exception as e:
+        logger.error(f"Ошибка обработки {crypto}: {e}")
+
+
+async def calculate_and_store_correlations(all_data: dict) -> None:
     start_time = time.time()
     try:
         if "BTC/USDT" not in all_data or "ETH/USDT" not in all_data:
             raise ValueError("Отсутствуют данные для BTC/USDT или ETH/USDT")
 
-        last_correlation = IndicatorData.objects.filter(
-            indicator_name__in=["BTC_Correlation", "ETH_Correlation"]
-        ).aggregate(last_date=Max("date"))["last_date"]
+        last_correlation = await sync_to_async(
+            lambda: IndicatorData.objects.filter(
+                indicator_name__in=["BTC_Correlation", "ETH_Correlation"]
+            ).aggregate(last_date=Max("date"))["last_date"]
+        )()
 
         end_date = timezone.now()
         start_date = (
@@ -225,90 +245,75 @@ def calculate_and_store_correlations(all_data):
             all_data[crypto] = df.loc[start_date:end_date]
 
         correlation_data_objects = []
+        returns_data = {}
 
         for crypto, df in all_data.items():
-            df.loc[:, "returns"] = df["close_price"].pct_change(fill_method=None)
+            df = df.copy()
+            df["returns"] = df["close_price"].pct_change(fill_method=None)
+            returns_data[crypto] = df["returns"]
 
-        returns_df = pd.concat(
-            [df["returns"].rename(crypto) for crypto, df in all_data.items()], axis=1
-        )
+        returns_df = pd.DataFrame(returns_data)
 
-        btc_correlation = returns_df.corrwith(returns_df["BTC/USDT"])
-        eth_correlation = returns_df.corrwith(returns_df["ETH/USDT"])
+        btc_corr = returns_df.corrwith(returns_df["BTC/USDT"])
+        eth_corr = returns_df.corrwith(returns_df["ETH/USDT"])
 
-        for date, row in returns_df.iterrows():
-            for crypto, correlation in btc_correlation.items():
-                if pd.notna(correlation):
+        for date in returns_df.index:
+            for crypto, value in btc_corr.items():
+                if pd.notna(value):
                     correlation_data_objects.append(
                         IndicatorData(
                             cryptocurrency=crypto,
                             date=date,
                             indicator_name="BTC_Correlation",
-                            value=correlation,
+                            value=value,
                         )
                     )
 
-            for crypto, correlation in eth_correlation.items():
-                if pd.notna(correlation):
+            for crypto, value in eth_corr.items():
+                if pd.notna(value):
                     correlation_data_objects.append(
                         IndicatorData(
                             cryptocurrency=crypto,
                             date=date,
                             indicator_name="ETH_Correlation",
-                            value=correlation,
+                            value=value,
                         )
                     )
 
         if correlation_data_objects:
-            IndicatorData.objects.bulk_create(correlation_data_objects, batch_size=1000)
-            logger.info("Корреляции успешно рассчитаны и сохранены для каждого часа.")
+            await async_bulk_create(correlation_data_objects, batch_size=1000)
+            logger.info("Корреляции сохранены")
         else:
-            logger.warning("Нет данных для сохранения корреляций.")
+            logger.warning("Нет данных для корреляций")
 
-        logger.info(f"Корреляции рассчитаны за {time.time() - start_time:.2f} сек.")
+        logger.info(f"Корреляции обработаны за {time.time() - start_time:.2f} сек.")
     except Exception as e:
-        logger.error(
-            f"Ошибка при расчёте и сохранении корреляций: {e} (затрачено {time.time() - start_time:.2f} сек.)"
-        )
+        logger.error(f"Ошибка расчета корреляций: {e}")
 
 
-def process_all_indicators():
+async def process_all_indicators() -> None:
     start_time = time.time()
-    logger.info("Начало обработки индикаторов для списка криптовалют.")
+    logger.info("Начало обработки индикаторов")
     try:
-        cryptos_list = get_data_for_all_cryptos()
-        if not cryptos_list:
-            logger.warning("Нет криптовалют для обработки. Завершаю выполнение.")
+        all_data = await get_data_for_all_cryptos()
+        if not all_data:
+            logger.warning("Нет данных для обработки")
             return
 
-        for crypto, df in cryptos_list.items():
-            if df.empty:
-                logger.warning(f"Данные для {crypto} не найдены. Пропускаю.")
-                continue
+        tasks = [
+            calculate_indicators_for_crypto(crypto, df)
+            for crypto, df in all_data.items()
+        ]
+        await asyncio.gather(*tasks)
 
-            logger.info(f"Запуск обработки данных для {crypto}.")
-            try:
-                df = calculate_indicators(df, crypto)
-                logger.info(f"Все индикаторы для {crypto} успешно рассчитаны.")
-            except Exception as inner_e:
-                logger.error(
-                    f"Ошибка при обработке индикаторов для {crypto}: {inner_e}"
-                )
+        await calculate_and_store_correlations(all_data)
 
-        logger.info("Запуск расчёта корреляций для всех криптовалют.")
-        try:
-            calculate_and_store_correlations(cryptos_list)
-            logger.info("Все корреляции успешно рассчитаны и сохранены.")
-        except Exception as correlation_error:
-            logger.error(f"Ошибка при расчёте корреляций: {correlation_error}")
-
+        logger.info(
+            f"Полная обработка завершена за {time.time() - start_time:.2f} сек."
+        )
     except Exception as e:
-        logger.error(f"Ошибка при обработке всех индикаторов: {e}")
-    logger.info(
-        f"Обработка всех индикаторов завершена за {time.time() - start_time:.2f} сек."
-    )
+        logger.error(f"Критическая ошибка: {e}")
 
 
 if __name__ == "__main__":
-    logger.info("Начало обработки всех криптовалют.")
-    process_all_indicators()
+    asyncio.run(process_all_indicators())

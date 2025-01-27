@@ -1,12 +1,18 @@
 import os
-import time
+import asyncio
+import platform
+
+if platform.system() == "Windows":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 import ccxt
+import ccxt.async_support as ccxt_async
 import logging
 from dotenv import load_dotenv
 from django.db.models import Max
 from crypto_analysis.models import MarketData
 from datetime import datetime, timezone, timedelta
-
+from asgiref.sync import sync_to_async
+from django.db import close_old_connections
 
 load_dotenv()
 
@@ -19,11 +25,9 @@ def get_default_start_date():
     return int(start_date.timestamp() * 1000)
 
 
-def get_last_date(symbol, exchange):
+@sync_to_async
+def get_last_date(symbol, exchange_id):
     try:
-        exchange_id = getattr(exchange, "id", None)
-        if not exchange_id:
-            raise AttributeError("Объект exchange не имеет атрибута 'id'.")
         last_date = MarketData.objects.filter(
             cryptocurrency=symbol, exchange=exchange_id
         ).aggregate(Max("date"))["date__max"]
@@ -35,150 +39,111 @@ def get_last_date(symbol, exchange):
 
 
 def get_since(last_date, default_start_date):
-    if last_date:
-        since = int(last_date.timestamp() * 1000)
-    else:
-        since = default_start_date
-    return since
+    return int(last_date.timestamp() * 1000) if last_date else default_start_date
 
 
-def fetch_data():
-    exchanges = [ccxt.binance(), ccxt.kraken()]
+async def fetch_data():
+    exchanges = [ccxt_async.binance(), ccxt_async.kraken()]
     symbols = os.getenv("CRYPTOPAIRS").split(",")
     timeframe = "1h"
     default_start_date = get_default_start_date()
-    logger.info(f"Получение данных для криптовалютных пар: {symbols}")
-    logger.info(f"Стартовый timestamp для данных: {default_start_date}")
-    for exchange in exchanges:
-        logger.info(f"Начало обработки биржи: {exchange.id}")
-        try:
+
+    logger.info(f"Загрузка данных для пар: {symbols}")
+    await asyncio.gather(
+        *[
             process_exchange(exchange, symbols, default_start_date, timeframe)
-            logger.info(f"Завершена обработка биржи: {exchange.id}")
-        except Exception as e:
-            logger.error(f"Ошибка работы с биржей {exchange.id}: {str(e)}")
+            for exchange in exchanges
+        ]
+    )
     logger.info("Загрузка данных завершена")
 
 
-def process_exchange(exchange, symbols, default_start_date, timeframe):
-    logger.info(f"Начало обработки биржи: {exchange.id}")
+async def process_exchange(exchange, symbols, default_start_date, timeframe):
+    logger.info(f"Обработка биржи: {exchange.id}")
     try:
-        exchange.load_markets()
-        for symbol in symbols:
-            logger.info(f"Обработка пары {symbol} на {exchange.id}")
-            if symbol in exchange.markets:
-                last_date = get_last_date(symbol, exchange)
-                logger.info(
-                    f"Последняя дата для {symbol} на {exchange.id}: {last_date}"
-                )
-                since = get_since(last_date, default_start_date)
-                logger.info(f"Дата начала для загрузки данных: {since}")
-                fetch_and_store_data(exchange, symbol, since, timeframe)
-            else:
-                logger.warning(f"Пара {symbol} не найдена на {exchange.id}")
+        await exchange.load_markets()
+        exchange_id = exchange.id
+        tasks = [
+            fetch_and_store_data(
+                exchange,
+                symbol,
+                get_since(await get_last_date(symbol, exchange_id), default_start_date),
+                timeframe,
+            )
+            for symbol in symbols
+            if symbol in exchange.markets
+        ]
+        await asyncio.gather(*tasks)
     except Exception as e:
-        logger.error(f"Ошибка при обработке биржи {exchange.id}: {str(e)}")
+        logger.error(f"Ошибка на бирже {exchange.id}: {str(e)}")
+    finally:
+        await exchange.close()
 
 
-def fetch_and_store_data(exchange, symbol, since, timeframe):
-    retries = 3
-    retry_delay = 60
-    all_data = []
+async def fetch_and_store_data(exchange, symbol, since, timeframe):
+    retries, all_data = 3, []
     while retries > 0:
         try:
-            data = exchange.fetch_ohlcv(symbol, timeframe, since=since)
+            data = await exchange.fetch_ohlcv(symbol, timeframe, since=since)
             if not data:
-                logger.info(f"Данные завершены для {symbol} на {exchange.id}")
+                logger.info(f"Нет новых данных для {symbol}")
                 break
-            logger.info(f"Получено {len(data)} записей для {symbol} на {exchange.id}")
-            for record in data:
-                timestamp = record[0]
-                naive_date = datetime.utcfromtimestamp(timestamp / 1000)
-                aware_date = naive_date.replace(tzinfo=timezone.utc)
-                logger.debug(
-                    f"Timestamp: {timestamp}, Naive Date: {naive_date}, Aware Date: {aware_date}"
-                )
-                all_data.append(
-                    (
-                        symbol,
-                        exchange.id,
-                        timestamp,
-                        record[1],
-                        record[2],
-                        record[3],
-                        record[4],
-                        record[5],
-                    )
-                )
+            logger.info(f"Получено {len(data)} записей для {symbol}")
+            all_data.extend([(symbol, exchange.id, *record) for record in data])
             since = data[-1][0] + 1
+            retries = 3
         except ccxt.NetworkError as e:
             retries -= 1
-            logger.warning(f"Ошибка сети: {str(e)}. Осталось попыток: {retries}")
-            if retries == 0:
-                logger.error(f"Попытки исчерпаны для {symbol} на {exchange.id}")
-            else:
-                time.sleep(retry_delay)
+            logger.warning(f"Ошибка сети: {e}. Попыток: {retries}")
+            await asyncio.sleep(60 * (4 - retries))
         except Exception as e:
-            logger.error(f"Ошибка загрузки: {str(e)}")
+            logger.error(f"Ошибка: {e}")
             break
-    store_data_bulk(all_data)
-    logger.info(
-        f"Общее количество загруженных записей для {symbol} на {exchange.id}: {len(all_data)}"
-    )
+    await store_data_bulk(all_data)
 
 
+@sync_to_async
 def store_data_bulk(all_data):
+    close_old_connections()
     if not all_data:
         return
 
-    records_to_check = {
-        (symbol, datetime.fromtimestamp(timestamp / 1000, timezone.utc), exchange_id)
-        for symbol, exchange_id, timestamp, _, _, _, _, _ in all_data
-    }
-
-    existing_records = set(
+    existing = set(
         MarketData.objects.filter(
-            cryptocurrency__in={symbol for symbol, _, _, _, _, _, _, _ in all_data},
-            date__in={
-                datetime.fromtimestamp(timestamp / 1000, timezone.utc)
-                for _, _, timestamp, _, _, _, _, _ in all_data
-            },
-            exchange__in={exchange_id for _, exchange_id, _, _, _, _, _, _ in all_data},
+            cryptocurrency__in=[d[0] for d in all_data],
+            date__in=[
+                datetime.fromtimestamp(d[2] / 1000, tz=timezone.utc) for d in all_data
+            ],
+            exchange__in=[d[1] for d in all_data],
         ).values_list("cryptocurrency", "date", "exchange")
     )
 
-    market_data_objects = []
-    for (
-        symbol,
-        exchange_id,
-        timestamp,
-        open_price,
-        high_price,
-        low_price,
-        close_price,
-        volume,
-    ) in all_data:
-        date = datetime.fromtimestamp(timestamp / 1000, timezone.utc)
-        if (symbol, date, exchange_id) not in existing_records:
-            market_data_objects.append(
-                MarketData(
-                    cryptocurrency=symbol,
-                    date=date,
-                    exchange=exchange_id,
-                    open_price=open_price,
-                    high_price=high_price,
-                    low_price=low_price,
-                    close_price=close_price,
-                    volume=volume,
-                )
-            )
+    new_data = [
+        MarketData(
+            cryptocurrency=symbol,
+            exchange=exchange_id,
+            date=datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc),
+            open_price=open,
+            high_price=high,
+            low_price=low,
+            close_price=close,
+            volume=volume,
+        )
+        for (symbol, exchange_id, timestamp, open, high, low, close, volume) in all_data
+        if (
+            symbol,
+            datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc),
+            exchange_id,
+        )
+        not in existing
+    ]
 
-    if market_data_objects:
-        try:
-            MarketData.objects.bulk_create(market_data_objects, batch_size=1000)
-            logger.info(
-                f"Данные успешно сохранены для {len(market_data_objects)} записей"
-            )
-        except Exception as e:
-            logger.error(f"Ошибка при сохранении данных в базу: {str(e)}")
+    if new_data:
+        MarketData.objects.bulk_create(new_data, batch_size=1000)
+        logger.info(f"Сохранено {len(new_data)} записей")
     else:
-        logger.info("Нет новых данных для сохранения")
+        logger.info("Нет новых данных")
+
+
+if __name__ == "__main__":
+    asyncio.run(fetch_data())
