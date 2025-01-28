@@ -53,39 +53,38 @@ async def get_data_for_crypto(crypto: str) -> tuple[str, pd.DataFrame] | None:
             logger.warning("Пустое имя криптовалюты. Пропускаем.")
             return None
 
-        last_processed = await async_get_last_processed(crypto)
-        start_date = (
-            last_processed
-            if last_processed
-            else timezone.now() - timezone.timedelta(days=730)
-        )
+        start_date = timezone.now() - timezone.timedelta(days=1095 + 200 + 30)
 
         data_all = await async_get_market_data(crypto, start_date)
 
-        logger.info(f"Получено {len(data_all)} записей для {crypto}.")
         if not data_all:
             logger.warning(f"Нет данных для {crypto}. Пропускаю.")
             return None
 
         df = pd.DataFrame(
             data_all,
-            columns=[
-                "date",
-                "close_price",
-                "high_price",
-                "low_price",
-                "cryptocurrency",
-            ],
+            columns=["date", "close_price", "high_price", "low_price", "cryptocurrency"],
         )
         df["date"] = pd.to_datetime(df["date"])
         df.set_index("date", inplace=True)
 
-        df = df.resample("h").last()
-        df = df[~df.index.duplicated(keep="last")]
+        df = df.resample('D').agg({
+            'close_price': 'last',
+            'high_price': 'max',
+            'low_price': 'min',
+            'cryptocurrency': 'last'
+        })
+
+        if df['close_price'].count() / len(df) > 0.5:
+            df = df.ffill().bfill()
+        else:
+            logger.warning(f"Слишком много пропусков для {crypto}. Данные не заполнены.")
+
+        logger.debug(f"Данные после обработки ({crypto}):\n{df.head(10)}")
 
         return (crypto, df)
     except Exception as e:
-        logger.error(f"Ошибка при получении данных для {crypto}: {e}")
+        logger.error(f"Ошибка при получении данных для {crypto}: {e}", exc_info=True)
         return None
 
 
@@ -208,9 +207,11 @@ def calculate_indicators_sync(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
 
 
 async def calculate_indicators_for_crypto(crypto: str, df: pd.DataFrame) -> None:
-    start_time = time.time()
     try:
         df = await asyncio.to_thread(calculate_indicators_sync, df.copy(), crypto)
+
+        two_years_ago = timezone.now() - timezone.timedelta(days=730)
+        df = df[df.index >= two_years_ago]
 
         indicator_data_objects = [
             IndicatorData(
@@ -225,14 +226,8 @@ async def calculate_indicators_for_crypto(crypto: str, df: pd.DataFrame) -> None
         ]
 
         if indicator_data_objects:
-            await async_bulk_create(indicator_data_objects, batch_size=1000)
+            await async_bulk_create(indicator_data_objects, batch_size=1000, ignore_conflicts=True)
             logger.info(f"Индикаторы для {crypto} сохранены")
-        else:
-            logger.warning(f"Нет данных для сохранения ({crypto})")
-
-        logger.info(
-            f"Индикаторы для {crypto} обработаны за {time.time() - start_time:.2f} сек."
-        )
     except Exception as e:
         logger.error(f"Ошибка обработки {crypto}: {e}")
 
@@ -296,7 +291,11 @@ async def calculate_and_store_correlations(all_data: dict) -> None:
                     )
 
         if correlation_data_objects:
-            await async_bulk_create(correlation_data_objects, batch_size=1000)
+            await async_bulk_create(
+                correlation_data_objects,
+                batch_size=1000,
+                ignore_conflicts=True
+            )
             logger.info("Корреляции сохранены")
         else:
             logger.warning("Нет данных для корреляций")

@@ -1,10 +1,12 @@
 import logging
+import numpy as np
 import pandas as pd
 from django.utils import timezone
 from xgboost import XGBRegressor
 from django.db import transaction
 from lightgbm import LGBMRegressor
 from catboost import CatBoostRegressor
+from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestRegressor, AdaBoostRegressor
 from sklearn.neural_network import MLPRegressor
 from crypto_analysis.models import (
@@ -35,46 +37,39 @@ def load_market_and_indicator_data(selected_indicators=None):
             "exchange",
         )
         df_market = pd.DataFrame(market_data)
-        df_market["date"] = pd.to_datetime(df_market["date"], utc=True).dt.tz_localize(
-            None
-        )
-        logger.info(f"Загружено MarketData: {df_market.shape}")
+        df_market["date"] = pd.to_datetime(df_market["date"], utc=True).dt.tz_localize(None)
 
         indicator_data = IndicatorData.objects.filter(
-            date__gte=now - timezone.timedelta(days=2 * 365)
+            date__gte=now - timezone.timedelta(days=2 * 365),
+            indicator_name__in=selected_indicators if selected_indicators else None
         ).values("cryptocurrency", "date", "indicator_name", "value")
-        if selected_indicators:
-            indicator_data = indicator_data.filter(
-                indicator_name__in=selected_indicators
-            )
-        df_indicators = pd.DataFrame(indicator_data)
-        df_indicators["date"] = pd.to_datetime(
-            df_indicators["date"], utc=True
-        ).dt.tz_localize(None)
-        logger.info(f"Загружено IndicatorData: {df_indicators.shape}")
 
-        df_indicators_wide = df_indicators.pivot(
-            index=["cryptocurrency", "date"], columns="indicator_name", values="value"
+        df_indicators = pd.DataFrame(indicator_data)
+        df_indicators["date"] = pd.to_datetime(df_indicators["date"], utc=True).dt.tz_localize(None)
+        df_indicators_wide = df_indicators.pivot_table(
+            index=["cryptocurrency", "date"],
+            columns="indicator_name",
+            values="value",
+            aggfunc='first'
         ).reset_index()
-        logger.info(
-            f"Преобразование индикаторов в широкий формат: {df_indicators_wide.shape}"
-        )
 
         news_data = NewsArticle.objects.filter(
             published_at__gte=now - timezone.timedelta(days=3)
         ).values("published_at", "title", "description", "sentiment", "polarity")
+
         df_news = pd.DataFrame(news_data)
         df_news.rename(columns={"published_at": "date"}, inplace=True)
-        df_news["date"] = (
-            pd.to_datetime(df_news["date"], utc=True).dt.tz_localize(None).dt.floor("h")
-        )
-        logger.info(f"Загружено NewsArticle: {df_news.shape}")
+        df_news["date"] = pd.to_datetime(df_news["date"], utc=True).dt.tz_localize(None).dt.floor("h")
+
+        sentiment_encoder = LabelEncoder()
+        df_news['sentiment'] = sentiment_encoder.fit_transform(df_news['sentiment'])
+        df_news['polarity'] = pd.to_numeric(df_news['polarity'], errors='coerce')
 
         df_combined = pd.merge(
-            df_indicators_wide, df_market, on=["cryptocurrency", "date"], how="inner"
-        )
-        logger.info(
-            f"После объединения MarketData и IndicatorData: {df_combined.shape}"
+            df_indicators_wide,
+            df_market,
+            on=["cryptocurrency", "date"],
+            how="inner"
         )
 
         df_combined = pd.merge_asof(
@@ -82,19 +77,19 @@ def load_market_and_indicator_data(selected_indicators=None):
             df_news.sort_values("date"),
             on="date",
             direction="nearest",
-            tolerance=pd.Timedelta("6h"),
+            tolerance=pd.Timedelta("6h")
         )
-        logger.info(f"После объединения с новостями: {df_combined.shape}")
 
-        if df_combined.isnull().any(axis=1).any():
-            logger.warning(
-                f"Обнаружены строки с пропущенными значениями: {df_combined.isnull().sum()}"
-            )
+        numeric_cols = df_combined.select_dtypes(include=np.number).columns
+        df_combined[numeric_cols] = df_combined[numeric_cols].fillna(method='ffill').fillna(0)
+
+        if df_combined.isnull().any().any():
+            logger.warning(f"Пропущенные значения после обработки: {df_combined.isnull().sum()}")
 
         return df_combined
 
     except Exception as e:
-        logger.error(f"Ошибка при загрузке данных: {e}")
+        logger.error(f"Ошибка при загрузке данных: {str(e)}", exc_info=True)
         return pd.DataFrame()
 
 
@@ -149,200 +144,188 @@ def short_term_indicators():
 
 
 def prepare_data_for_ml(data):
+    if data.empty:
+        raise ValueError("Пустой DataFrame на входе")
+
     if "close_price" not in data.columns:
-        raise KeyError(
-            f"Column 'close_price' is missing in the input data. Available columns: {list(data.columns)}"
-        )
+        raise KeyError(f"Отсутствует столбец close_price в данных. Доступные колонки: {list(data.columns)}")
 
-    features = (
-        data.drop(["cryptocurrency", "date", "close_price"], axis=1).iloc[:-1].values
-    )
-    target = data["close_price"].shift(-1).dropna().values
+    if len(data) < 3:
+        raise ValueError(f"Недостаточно данных для обучения: {len(data)} samples")
 
-    if len(features) == 0 or len(target) == 0:
-        raise ValueError("Insufficient data after processing.")
+    features = data.drop(["cryptocurrency", "date", "close_price"], axis=1, errors='ignore')
+    target = data["close_price"].shift(-1).dropna()
+
+    features = features.iloc[:-1]
+    target = target.iloc[:-1] if len(target) > len(features) else target
 
     if len(features) != len(target):
-        raise ValueError("Mismatch in the number of features and target samples.")
+        min_length = min(len(features), len(target))
+        features = features.iloc[:min_length]
+        target = target.iloc[:min_length]
 
-    return features, target
+    if len(features) == 0 or len(target) == 0:
+        raise ValueError("Нулевой размер данных после обработки")
+
+    return features.values, target.values
 
 
 def short_term_forecasting(data):
-    required_indicators = short_term_indicators()
-    required_indicators = [
-        indicator for indicator in required_indicators if indicator != "value"
-    ]
-
-    data = data[
-        ["cryptocurrency", "date"] + required_indicators + ["close_price"]
-    ].dropna()
+    if data.empty:
+        logger.error("Пустые входные данные для прогнозирования")
+        return []
 
     models = {
-        "RandomForest": RandomForestRegressor(n_estimators=100, max_depth=5),
-        "XGBoost": XGBRegressor(n_estimators=100, max_depth=5, learning_rate=0.1),
+        "RandomForest": RandomForestRegressor(
+            n_estimators=50,
+            max_depth=3,
+            min_samples_split=3,
+            random_state=42
+        ),
+        "XGBoost": XGBRegressor(
+            n_estimators=50,
+            max_depth=3,
+            learning_rate=0.05,
+            enable_categorical=True
+        ),
         "LightGBM": LGBMRegressor(
-            n_estimators=100, max_depth=5, learning_rate=0.1, num_leaves=31
+            n_estimators=50,
+            max_depth=3,
+            learning_rate=0.05,
+            min_child_samples=2,
+            num_leaves=7
         ),
         "CatBoost": CatBoostRegressor(
-            iterations=100, depth=5, learning_rate=0.1, verbose=0
+            iterations=50,
+            depth=3,
+            learning_rate=0.05,
+            verbose=0
         ),
-        "AdaBoost": AdaBoostRegressor(n_estimators=100, learning_rate=0.1),
+        "AdaBoost": AdaBoostRegressor(
+            n_estimators=50,
+            learning_rate=0.05
+        ),
         "MLP": MLPRegressor(
-            hidden_layer_sizes=50,
-            activation="relu",
-            solver="adam",
-            learning_rate="adaptive",
-            max_iter=100,
-            random_state=42,
-        ),
+            hidden_layer_sizes=(20,),
+            activation='relu',
+            solver='adam',
+            learning_rate='adaptive',
+            max_iter=200,
+            early_stopping=True
+        )
     }
 
     features_config = {
-        "RandomForest": [
-            "price_change_1d",
-            "SMA_7",
-            "SMA_14",
-            "RSI_7d",
-            "volatility_7d",
-            "MACD_12_26",
-            "seasonality_weekday_Monday",
-            "BTC_Correlation",
-            "ETH_Correlation",
-            "volume",
-        ],
-        "XGBoost": [
-            "price_change_7d",
-            "SMA_7",
-            "RSI_14d",
-            "ATR_14",
-            "Stochastic_7",
-            "seasonality_weekday_Thursday",
-            "BTC_Correlation",
-            "sentiment",
-            "volume",
-        ],
-        "LightGBM": [
-            "SMA_14",
-            "volatility_14d",
-            "RSI_30d",
-            "Stochastic_14",
-            "seasonality_month_1",
-            "ETH_Correlation",
-            "polarity",
-            "volume",
-        ],
-        "CatBoost": [
-            "SMA_30",
-            "RSI_14d",
-            "volatility_30d",
-            "MACD_signal_9",
-            "seasonality_weekday_Saturday",
-            "BTC_Correlation",
-            "sentiment",
-            "volume",
-        ],
-        "AdaBoost": [
-            "price_change_14d",
-            "ATR_14",
-            "seasonality_weekday_Friday",
-            "ETH_Correlation",
-            "volume",
-        ],
-        "MLP": [
-            "price_change_1d",
-            "RSI_7d",
-            "RSI_14d",
-            "SMA_7",
-            "SMA_14",
-            "MACD_12_26",
-            "seasonality_weekday_Monday",
-            "BTC_Correlation",
-            "ETH_Correlation",
-            "sentiment",
-            "polarity",
-            "volume",
-        ],
+        "RandomForest": ['price_change_1d', 'SMA_7', 'RSI_7d', 'volume'],
+        "XGBoost": ['price_change_7d', 'SMA_7', 'RSI_14d', 'volume'],
+        "LightGBM": ['SMA_14', 'volatility_14d', 'RSI_30d', 'volume'],
+        "CatBoost": ['SMA_30', 'RSI_14d', 'volume'],
+        "AdaBoost": ['price_change_14d', 'ATR_14', 'volume'],
+        "MLP": ['price_change_1d', 'RSI_7d', 'SMA_7', 'volume']
     }
 
     predictions = []
-    for model_name, model in models.items():
-        for crypto, crypto_data in data.groupby("cryptocurrency"):
-            crypto_data = crypto_data.sort_values("date")
-            selected_features = features_config[model_name]
 
-            missing_features = [
-                f for f in selected_features if f not in crypto_data.columns
-            ]
-            if missing_features:
-                logger.warning(
-                    f"Missing features {missing_features} for {crypto}. Skipping."
-                )
-                continue
+    for crypto, crypto_data in data.groupby('cryptocurrency'):
+        crypto_data = crypto_data.sort_values('date').reset_index(drop=True)
 
+        if len(crypto_data) < 5:
+            logger.warning(f"Недостаточно данных для {crypto}: {len(crypto_data)} записей")
+            continue
+
+        for model_name, model in models.items():
             try:
-                crypto_subset = crypto_data[
-                    ["cryptocurrency", "date"] + selected_features + ["close_price"]
-                ].copy()
-                X, y = prepare_data_for_ml(crypto_subset)
-            except Exception as e:
-                logger.error(f"Error preparing data for {crypto}: {e}")
-                continue
+                selected_features = features_config[model_name]
+                available_features = [f for f in selected_features if f in crypto_data.columns]
 
-            split_idx = int(0.8 * len(X))
-            X_train, X_test = X[:split_idx], X[split_idx:]
-            y_train, y_test = y[:split_idx], y[split_idx:]
+                if not available_features:
+                    logger.warning(f"Нет доступных фич для {model_name} в {crypto}")
+                    continue
 
-            if len(X_train) == 0:
-                logger.warning(f"Not enough data for {crypto}. Skipping.")
-                continue
+                try:
+                    X, y = prepare_data_for_ml(
+                        crypto_data[['cryptocurrency', 'date', 'close_price'] + available_features]
+                    )
+                except Exception as e:
+                    logger.error(f"Ошибка подготовки данных для {crypto}: {str(e)}")
+                    continue
 
-            try:
+                split_idx = max(2, int(0.8 * len(X)))
+                if split_idx < 2 or (len(X) - split_idx) < 1:
+                    logger.warning(f"Недостаточно данных для разделения: {len(X)} samples")
+                    X_train, y_train = X, y
+                    X_test, y_test = np.array([]), np.array([])
+                else:
+                    X_train, X_test = X[:split_idx], X[split_idx:]
+                    y_train, y_test = y[:split_idx], y[split_idx:]
+
                 model.fit(X_train, y_train)
-                test_score = model.score(X_test, y_test) if len(X_test) > 0 else 0.0
 
-                model.fit(X, y)
+                test_score = 0.0
+                if len(X_test) > 0:
+                    try:
+                        test_score = model.score(X_test, y_test)
+                    except Exception as e:
+                        logger.warning(f"Ошибка оценки модели: {str(e)}")
 
-                last_features = (
-                    crypto_subset[selected_features].iloc[-1].values.reshape(1, -1)
-                )
+                last_features = crypto_data[available_features].iloc[-1].values.reshape(1, -1)
                 y_pred = model.predict(last_features)[0]
-            except Exception as e:
-                logger.error(f"Error training model for {crypto}: {e}")
-                continue
 
-            predictions.append(
-                {
+                predictions.append({
                     "cryptocurrency": crypto,
                     "predicted_change": y_pred,
                     "model_type": model_name,
-                    "confidence": test_score,
-                }
-            )
+                    "confidence": max(0.0, min(test_score, 1.0))
+                })
+
+            except Exception as e:
+                logger.error(f"Ошибка в модели {model_name} для {crypto}: {str(e)}", exc_info=True)
+                continue
 
     return predictions
 
 
 @transaction.atomic
 def save_predictions(predictions, is_short_term=True):
-    model = ShortTermCryptoPrediction
+    if not predictions:
+        logger.warning("Пустой список прогнозов для сохранения")
+        return
+
+    current_date = timezone.now().date()
+
     for pred in predictions:
-        model.objects.update_or_create(
-            cryptocurrency_pair=pred["cryptocurrency"],
-            prediction_date=pd.Timestamp.now().date(),
-            model_type=pred["model_type"],
-            defaults={
-                "predicted_price_change": pred["predicted_change"],
-                "predicted_close": pred["predicted_change"],
-                "confidence_level": pred["confidence"],
-            },
-        )
+        try:
+            ShortTermCryptoPrediction.objects.update_or_create(
+                cryptocurrency_pair=pred["cryptocurrency"],
+                prediction_date=current_date,
+                model_type=pred["model_type"],
+                defaults={
+                    "predicted_price_change": pred["predicted_change"],
+                    "predicted_close": pred["predicted_change"],
+                    "confidence_level": pred["confidence"]
+                }
+            )
+        except Exception as e:
+            logger.error(f"Ошибка сохранения прогноза для {pred['cryptocurrency']}: {str(e)}")
+            continue
 
 
 def run_short_predictions():
-    short_term_data = load_market_and_indicator_data(short_term_indicators())
-    if not short_term_data.empty:
-        short_predictions = short_term_forecasting(short_term_data)
-        save_predictions(short_predictions, is_short_term=True)
-    else:
-        logger.error("No data available for short-term predictions")
+    try:
+        indicators = short_term_indicators()
+        data = load_market_and_indicator_data(indicators)
+
+        if not data.empty:
+            logger.info(f"Начало прогнозирования на {len(data)} записях")
+            predictions = short_term_forecasting(data)
+
+            if predictions:
+                save_predictions(predictions, is_short_term=True)
+                logger.info(f"Успешно сохранено {len(predictions)} прогнозов")
+            else:
+                logger.warning("Нет прогнозов для сохранения")
+        else:
+            logger.error("Нет данных для прогнозирования")
+
+    except Exception as e:
+        logger.error(f"Критическая ошибка в run_short_predictions: {str(e)}", exc_info=True)
