@@ -262,6 +262,8 @@ def short_term_forecasting(data):
             )
             continue
 
+        current_price = crypto_data["close_price"].iloc[-1]
+
         for model_name, model in models.items():
             try:
                 selected_features = features_config[model_name]
@@ -315,10 +317,14 @@ def short_term_forecasting(data):
                 )
                 y_pred = model.predict(last_features)[0]
 
+                price_change = y_pred - current_price
+
                 predictions.append(
                     {
                         "cryptocurrency": crypto,
-                        "predicted_change": y_pred,
+                        "predicted_change": price_change,
+                        "predicted_close": y_pred,
+                        "current_price": current_price,
                         "model_type": model_name,
                         "confidence": max(0.0, min(test_score, 1.0)),
                     }
@@ -350,7 +356,8 @@ def save_predictions(predictions, is_short_term=True):
                 model_type=pred["model_type"],
                 defaults={
                     "predicted_price_change": pred["predicted_change"],
-                    "predicted_close": pred["predicted_change"],
+                    "predicted_close": pred["predicted_close"],
+                    "current_price": pred["current_price"],
                     "confidence_level": pred["confidence"],
                 },
             )

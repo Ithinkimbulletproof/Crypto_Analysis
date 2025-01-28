@@ -6,6 +6,7 @@ class ShortTermCryptoPrediction(models.Model):
     prediction_date = models.DateField(db_index=True)
     predicted_price_change = models.FloatField()
     predicted_close = models.FloatField()
+    current_price = models.FloatField()
     model_type = models.CharField(max_length=50)
     confidence_level = models.FloatField(default=1.0)
 

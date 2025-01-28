@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import (
+from crypto_analysis.models import (
     ShortTermCryptoPrediction,
     LongTermCryptoPrediction,
     MarketData,
@@ -15,6 +15,7 @@ class ShortTermCryptoPredictionAdmin(admin.ModelAdmin):
         "prediction_date",
         "predicted_price_change",
         "predicted_close",
+        "current_price",
         "model_type",
         "confidence_level",
     )
