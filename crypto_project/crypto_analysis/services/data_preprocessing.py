@@ -63,22 +63,32 @@ async def get_data_for_crypto(crypto: str) -> tuple[str, pd.DataFrame] | None:
 
         df = pd.DataFrame(
             data_all,
-            columns=["date", "close_price", "high_price", "low_price", "cryptocurrency"],
+            columns=[
+                "date",
+                "close_price",
+                "high_price",
+                "low_price",
+                "cryptocurrency",
+            ],
         )
         df["date"] = pd.to_datetime(df["date"])
         df.set_index("date", inplace=True)
 
-        df = df.resample('D').agg({
-            'close_price': 'last',
-            'high_price': 'max',
-            'low_price': 'min',
-            'cryptocurrency': 'last'
-        })
+        df = df.resample("D").agg(
+            {
+                "close_price": "last",
+                "high_price": "max",
+                "low_price": "min",
+                "cryptocurrency": "last",
+            }
+        )
 
-        if df['close_price'].count() / len(df) > 0.5:
+        if df["close_price"].count() / len(df) > 0.5:
             df = df.ffill().bfill()
         else:
-            logger.warning(f"Слишком много пропусков для {crypto}. Данные не заполнены.")
+            logger.warning(
+                f"Слишком много пропусков для {crypto}. Данные не заполнены."
+            )
 
         logger.debug(f"Данные после обработки ({crypto}):\n{df.head(10)}")
 
@@ -226,7 +236,9 @@ async def calculate_indicators_for_crypto(crypto: str, df: pd.DataFrame) -> None
         ]
 
         if indicator_data_objects:
-            await async_bulk_create(indicator_data_objects, batch_size=1000, ignore_conflicts=True)
+            await async_bulk_create(
+                indicator_data_objects, batch_size=1000, ignore_conflicts=True
+            )
             logger.info(f"Индикаторы для {crypto} сохранены")
     except Exception as e:
         logger.error(f"Ошибка обработки {crypto}: {e}")
@@ -292,9 +304,7 @@ async def calculate_and_store_correlations(all_data: dict) -> None:
 
         if correlation_data_objects:
             await async_bulk_create(
-                correlation_data_objects,
-                batch_size=1000,
-                ignore_conflicts=True
+                correlation_data_objects, batch_size=1000, ignore_conflicts=True
             )
             logger.info("Корреляции сохранены")
         else:
