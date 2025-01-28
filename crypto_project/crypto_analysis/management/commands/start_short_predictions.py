@@ -2,6 +2,7 @@ import time
 import asyncio
 import logging
 from django.core.management.base import BaseCommand
+from asgiref.sync import sync_to_async
 from crypto_analysis.services.data_fetcher import fetch_data
 from crypto_analysis.services.data_preprocessing import process_all_indicators
 from crypto_analysis.services.news_analysis import gather_and_analyze_news
@@ -37,15 +38,17 @@ class Command(BaseCommand):
                 self.style.SUCCESS(f"Индикаторы рассчитаны за {time_used:.2f} сек")
             )
 
-            # self.stdout.write(self.style.SUCCESS("Анализ новостей..."))
-            # start_time = time.time()
-            # await gather_and_analyze_news("cryptocurrency OR BTC OR ETH OR crypto market")
-            # time_used = time.time() - start_time
-            # self.stdout.write(self.style.SUCCESS(f"Новости проанализированы за {time_used:.2f} сек"))
+            self.stdout.write(self.style.SUCCESS("Анализ новостей..."))
+            start_time = time.time()
+            await sync_to_async(gather_and_analyze_news)()
+            time_used = time.time() - start_time
+            self.stdout.write(
+                self.style.SUCCESS(f"Новости проанализированы за {time_used:.2f} сек")
+            )
 
             self.stdout.write(self.style.SUCCESS("Расчёт предсказаний..."))
             start_time = time.time()
-            await run_short_predictions()  # Асинхронный вызов
+            await sync_to_async(run_short_predictions)()
             time_used = time.time() - start_time
             self.stdout.write(
                 self.style.SUCCESS(f"Предсказания готовы за {time_used:.2f} сек")

@@ -82,7 +82,7 @@ def load_market_and_indicator_data(selected_indicators=None):
             df_news.sort_values("date"),
             on="date",
             direction="nearest",
-            tolerance=pd.Timedelta("1h"),
+            tolerance=pd.Timedelta("6h"),
         )
         logger.info(f"После объединения с новостями: {df_combined.shape}")
 
@@ -145,9 +145,27 @@ def short_term_indicators():
         "volume",
         "sentiment",
         "polarity",
-        "title",
-        "description",
     ]
+
+
+def prepare_data_for_ml(data):
+    if "close_price" not in data.columns:
+        raise KeyError(
+            f"Column 'close_price' is missing in the input data. Available columns: {list(data.columns)}"
+        )
+
+    features = (
+        data.drop(["cryptocurrency", "date", "close_price"], axis=1).iloc[:-1].values
+    )
+    target = data["close_price"].shift(-1).dropna().values
+
+    if len(features) == 0 or len(target) == 0:
+        raise ValueError("Insufficient data after processing.")
+
+    if len(features) != len(target):
+        raise ValueError("Mismatch in the number of features and target samples.")
+
+    return features, target
 
 
 def short_term_forecasting(data):
@@ -180,7 +198,7 @@ def short_term_forecasting(data):
         ),
     }
 
-    features = {
+    features_config = {
         "RandomForest": [
             "price_change_1d",
             "SMA_7",
@@ -222,7 +240,6 @@ def short_term_forecasting(data):
             "seasonality_weekday_Saturday",
             "BTC_Correlation",
             "sentiment",
-            "title",
             "volume",
         ],
         "AdaBoost": [
@@ -230,7 +247,6 @@ def short_term_forecasting(data):
             "ATR_14",
             "seasonality_weekday_Friday",
             "ETH_Correlation",
-            "description",
             "volume",
         ],
         "MLP": [
@@ -253,57 +269,58 @@ def short_term_forecasting(data):
     for model_name, model in models.items():
         for crypto, crypto_data in data.groupby("cryptocurrency"):
             crypto_data = crypto_data.sort_values("date")
+            selected_features = features_config[model_name]
 
-            selected_features = features[model_name]
+            missing_features = [
+                f for f in selected_features if f not in crypto_data.columns
+            ]
+            if missing_features:
+                logger.warning(
+                    f"Missing features {missing_features} for {crypto}. Skipping."
+                )
+                continue
 
-            X = crypto_data[selected_features]
-            y = crypto_data["close_price"]
+            try:
+                crypto_subset = crypto_data[
+                    ["cryptocurrency", "date"] + selected_features + ["close_price"]
+                ].copy()
+                X, y = prepare_data_for_ml(crypto_subset)
+            except Exception as e:
+                logger.error(f"Error preparing data for {crypto}: {e}")
+                continue
 
-            model.fit(X, y)
-            y_pred = model.predict([X.iloc[-1]])[0]
+            split_idx = int(0.8 * len(X))
+            X_train, X_test = X[:split_idx], X[split_idx:]
+            y_train, y_test = y[:split_idx], y[split_idx:]
+
+            if len(X_train) == 0:
+                logger.warning(f"Not enough data for {crypto}. Skipping.")
+                continue
+
+            try:
+                model.fit(X_train, y_train)
+                test_score = model.score(X_test, y_test) if len(X_test) > 0 else 0.0
+
+                model.fit(X, y)
+
+                last_features = (
+                    crypto_subset[selected_features].iloc[-1].values.reshape(1, -1)
+                )
+                y_pred = model.predict(last_features)[0]
+            except Exception as e:
+                logger.error(f"Error training model for {crypto}: {e}")
+                continue
 
             predictions.append(
                 {
                     "cryptocurrency": crypto,
                     "predicted_change": y_pred,
                     "model_type": model_name,
-                    "confidence": calculate_confidence(model, X, y),
+                    "confidence": test_score,
                 }
             )
 
     return predictions
-
-
-def prepare_data_for_ml(data):
-    if "close_price" not in data.columns:
-        raise KeyError(
-            f"Column 'close_price' is missing in the input data. Available columns: {list(data.columns)}"
-        )
-
-    features = data.drop(["cryptocurrency", "date"], axis=1).iloc[:-1].values
-    target = data["close_price"].shift(-1).dropna().values
-
-    if len(features) == 0 or len(target) == 0:
-        raise ValueError("Insufficient data after processing.")
-
-    return features, target
-
-
-def prepare_data_for_prophet(data):
-    data = data.copy()
-    data["y"] = data.drop(["cryptocurrency", "date"], axis=1).mean(axis=1)
-    df_prophet = data[["date", "y"]].rename(columns={"date": "ds"})
-
-    df_prophet["ds"] = df_prophet["ds"].dt.tz_localize(None)
-
-    df_prophet = df_prophet.dropna()
-    return df_prophet
-
-
-def calculate_confidence(model, X, y):
-    if hasattr(model, "score"):
-        return model.score(X, y)
-    return 1.0
 
 
 @transaction.atomic
@@ -324,5 +341,8 @@ def save_predictions(predictions, is_short_term=True):
 
 def run_short_predictions():
     short_term_data = load_market_and_indicator_data(short_term_indicators())
-    short_predictions = short_term_forecasting(short_term_data)
-    save_predictions(short_predictions, is_short_term=True)
+    if not short_term_data.empty:
+        short_predictions = short_term_forecasting(short_term_data)
+        save_predictions(short_predictions, is_short_term=True)
+    else:
+        logger.error("No data available for short-term predictions")
