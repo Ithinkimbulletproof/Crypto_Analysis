@@ -21,17 +21,17 @@ logger = logging.getLogger(__name__)
 
 
 def get_default_start_date():
-    start_date = datetime.now() - timedelta(days=1095)
+    start_date = datetime.now() - timedelta(days=2000)
     return int(start_date.timestamp() * 1000)
 
 
 @sync_to_async
-def get_last_date(symbol, exchange_id):
+def get_last_date(symbol):
     try:
         last_date = MarketData.objects.filter(
-            cryptocurrency=symbol, exchange=exchange_id
+            cryptocurrency=symbol
         ).aggregate(Max("date"))["date__max"]
-        logger.info(f"Последняя дата для {symbol} на {exchange_id}: {last_date}")
+        logger.info(f"Последняя дата для {symbol}: {last_date}")
         return last_date
     except Exception as e:
         logger.error(f"Ошибка при получении последней даты: {str(e)}")
@@ -45,7 +45,7 @@ def get_since(last_date, default_start_date):
 async def fetch_data():
     exchanges = [ccxt_async.binance(), ccxt_async.kraken()]
     symbols = os.getenv("CRYPTOPAIRS").split(",")
-    timeframe = "1h"
+    timeframe = "15m"
     default_start_date = get_default_start_date()
 
     logger.info(f"Загрузка данных для пар: {symbols}")
@@ -67,7 +67,7 @@ async def process_exchange(exchange, symbols, default_start_date, timeframe):
             fetch_and_store_data(
                 exchange,
                 symbol,
-                get_since(await get_last_date(symbol, exchange_id), default_start_date),
+                get_since(await get_last_date(symbol), default_start_date),
                 timeframe,
             )
             for symbol in symbols
@@ -108,20 +108,54 @@ def store_data_bulk(all_data):
     if not all_data:
         return
 
+    grouped_data = {}
+    for item in all_data:
+        symbol, exchange, timestamp = item[0], item[1], item[2]
+        key = (symbol, timestamp)
+        if key not in grouped_data:
+            grouped_data[key] = []
+        grouped_data[key].append(item)
+
+    averaged_records = []
+    for key in grouped_data:
+        symbol, timestamp = key
+        group = grouped_data[key]
+
+        opens = [x[3] for x in group]
+        highs = [x[4] for x in group]
+        lows = [x[5] for x in group]
+        closes = [x[6] for x in group]
+        volumes = [x[7] for x in group]
+
+        avg_open = sum(opens) / len(opens)
+        max_high = max(highs)
+        min_low = min(lows)
+        avg_close = sum(closes) / len(closes)
+        total_volume = sum(volumes)
+
+        averaged_records.append((
+            symbol,
+            timestamp,
+            avg_open,
+            max_high,
+            min_low,
+            avg_close,
+            total_volume
+        ))
+
     existing = set(
         MarketData.objects.filter(
-            cryptocurrency__in=[d[0] for d in all_data],
+            cryptocurrency__in=[d[0] for d in averaged_records],
             date__in=[
-                datetime.fromtimestamp(d[2] / 1000, tz=timezone.utc) for d in all_data
-            ],
-            exchange__in=[d[1] for d in all_data],
-        ).values_list("cryptocurrency", "date", "exchange")
+                datetime.fromtimestamp(d[1] / 1000, tz=timezone.utc)
+                for d in averaged_records
+            ]
+        ).values_list("cryptocurrency", "date")
     )
 
     new_data = [
         MarketData(
             cryptocurrency=symbol,
-            exchange=exchange_id,
             date=datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc),
             open_price=open,
             high_price=high,
@@ -129,20 +163,15 @@ def store_data_bulk(all_data):
             close_price=close,
             volume=volume,
         )
-        for (symbol, exchange_id, timestamp, open, high, low, close, volume) in all_data
-        if (
-            symbol,
-            datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc),
-            exchange_id,
-        )
-        not in existing
+        for (symbol, timestamp, open, high, low, close, volume) in averaged_records
+        if (symbol, datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)) not in existing
     ]
 
     if new_data:
         MarketData.objects.bulk_create(new_data, batch_size=1000)
-        logger.info(f"Сохранено {len(new_data)} записей")
+        logger.info(f"Сохранено {len(new_data)} агрегированных записей")
     else:
-        logger.info("Нет новых данных")
+        logger.info("Нет новых данных для сохранения")
 
 
 if __name__ == "__main__":

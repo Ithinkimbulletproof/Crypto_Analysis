@@ -40,10 +40,9 @@ class MarketData(models.Model):
     low_price = models.FloatField()
     close_price = models.FloatField()
     volume = models.FloatField()
-    exchange = models.CharField(max_length=50, null=True, blank=True)
 
     class Meta:
-        unique_together = ("cryptocurrency", "date", "exchange")
+        unique_together = ("cryptocurrency", "date")
 
     def __str__(self):
         return f"{self.cryptocurrency} | {self.date} | Close: {self.close_price:.2f}"

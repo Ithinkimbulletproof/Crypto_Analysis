@@ -49,10 +49,8 @@ class MarketDataAdmin(admin.ModelAdmin):
         "low_price",
         "close_price",
         "volume",
-        "exchange",
     )
-    list_filter = ("cryptocurrency", "exchange", "date")
-    search_fields = ("cryptocurrency", "exchange")
+    list_filter = ("cryptocurrency", "date")
     ordering = ("-date",)
 
 

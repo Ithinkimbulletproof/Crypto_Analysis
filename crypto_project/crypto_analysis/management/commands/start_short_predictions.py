@@ -2,11 +2,8 @@ import time
 import asyncio
 import logging
 from django.core.management.base import BaseCommand
-from asgiref.sync import sync_to_async
 from crypto_analysis.services.data_fetcher import fetch_data
-from crypto_analysis.services.data_preprocessing import process_all_indicators
-from crypto_analysis.services.news_analysis import gather_and_analyze_news
-from crypto_analysis.services.short_predictions import run_short_predictions
+
 
 logger = logging.getLogger(__name__)
 
@@ -28,35 +25,6 @@ class Command(BaseCommand):
             time_used = time.time() - start_time
             self.stdout.write(
                 self.style.SUCCESS(f"Данные получены за {time_used:.2f} сек")
-            )
-
-            self.stdout.write(self.style.SUCCESS("Запуск обработки индикаторов..."))
-            start_time = time.time()
-            await process_all_indicators()
-            time_used = time.time() - start_time
-            self.stdout.write(
-                self.style.SUCCESS(f"Индикаторы рассчитаны за {time_used:.2f} сек")
-            )
-
-            self.stdout.write(self.style.SUCCESS("Анализ новостей..."))
-            start_time = time.time()
-            await sync_to_async(gather_and_analyze_news)()
-            time_used = time.time() - start_time
-            self.stdout.write(
-                self.style.SUCCESS(f"Новости проанализированы за {time_used:.2f} сек")
-            )
-
-            self.stdout.write(self.style.SUCCESS("Расчёт предсказаний..."))
-            start_time = time.time()
-            await sync_to_async(run_short_predictions)()
-            time_used = time.time() - start_time
-            self.stdout.write(
-                self.style.SUCCESS(f"Предсказания готовы за {time_used:.2f} сек")
-            )
-
-            total_time = time.time() - start_total_time
-            self.stdout.write(
-                self.style.SUCCESS(f"Общее время выполнения: {total_time:.2f} сек")
             )
 
         except Exception as e:
