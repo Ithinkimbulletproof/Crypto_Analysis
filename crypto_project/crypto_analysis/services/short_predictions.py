@@ -2,360 +2,113 @@ import logging
 import numpy as np
 import pandas as pd
 from django.utils import timezone
+from xgboost import XGBRegressor
 from django.db import transaction
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_absolute_percentage_error
+from lightgbm import LGBMRegressor
+from catboost import CatBoostRegressor
+from sklearn.preprocessing import LabelEncoder
+from sklearn.ensemble import RandomForestRegressor, AdaBoostRegressor
+from sklearn.neural_network import MLPRegressor
 from crypto_analysis.models import (
+    IndicatorData,
     ShortTermCryptoPrediction,
     MarketData,
     NewsArticle,
-    IndicatorData,
 )
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO)
 
 
-class DataLoader:
-    @staticmethod
-    def load_data(selected_indicators=None):
-        try:
-            now = timezone.now()
-            three_years_ago = now - timezone.timedelta(days=3 * 365)
+def load_market_and_indicator_data(selected_indicators=None):
+    try:
+        now = timezone.now()
 
-            market_data = MarketData.objects.filter(
-                date__gte=three_years_ago
-            ).values_list(
-                "cryptocurrency",
-                "date",
-                "open_price",
-                "high_price",
-                "low_price",
-                "close_price",
-                "volume",
-                "exchange",
-                named=True,
-            )
-            df_market = pd.DataFrame(
-                market_data,
-                columns=[
-                    "cryptocurrency",
-                    "date",
-                    "open_price",
-                    "high_price",
-                    "low_price",
-                    "close_price",
-                    "volume",
-                    "exchange",
-                ],
-            )
-            df_market["date"] = pd.to_datetime(
-                df_market["date"], utc=True
-            ).dt.tz_localize(None)
-
-            indicator_query = (
-                IndicatorData.objects.filter(
-                    date__gte=three_years_ago, indicator_name__in=selected_indicators
-                )
-                if selected_indicators
-                else IndicatorData.objects.filter(date__gte=three_years_ago)
-            )
-
-            indicators = indicator_query.values_list(
-                "cryptocurrency", "date", "indicator_name", "value", named=True
-            )
-            df_indicators = pd.DataFrame(
-                indicators,
-                columns=["cryptocurrency", "date", "indicator_name", "value"],
-            )
-            df_indicators["date"] = pd.to_datetime(
-                df_indicators["date"], utc=True
-            ).dt.tz_localize(None)
-
-            df_indicators_wide = df_indicators.pivot_table(
-                index=["cryptocurrency", "date"],
-                columns="indicator_name",
-                values="value",
-                aggfunc="mean",
-            ).reset_index()
-
-            news_data = NewsArticle.objects.filter(
-                published_at__gte=now - timezone.timedelta(days=3)
-            ).values_list(
-                "published_at",
-                "title",
-                "description",
-                "sentiment",
-                "polarity",
-                "cryptocurrency",
-                named=True,
-            )
-            df_news = pd.DataFrame(
-                news_data,
-                columns=[
-                    "date",
-                    "title",
-                    "description",
-                    "sentiment",
-                    "polarity",
-                    "cryptocurrency",
-                ],
-            )
-            df_news["date"] = (
-                pd.to_datetime(df_news["date"], utc=True)
-                .dt.tz_localize(None)
-                .dt.floor("h")
-            )
-            df_news["sentiment"] = df_news["sentiment"].astype("category").cat.codes
-            df_news["polarity"] = pd.to_numeric(
-                df_news["polarity"], errors="coerce"
-            ).fillna(0)
-
-            df_combined = pd.merge(
-                df_market, df_indicators_wide, on=["cryptocurrency", "date"], how="left"
-            )
-
-            df_combined = pd.merge_asof(
-                df_combined.sort_values("date"),
-                df_news.sort_values("date"),
-                on="date",
-                by="cryptocurrency",
-                direction="nearest",
-                tolerance=pd.Timedelta("6h"),
-            )
-
-            numeric_cols = df_combined.select_dtypes(include=np.number).columns
-            df_combined[numeric_cols] = (
-                df_combined[numeric_cols].interpolate(limit_direction="both").fillna(0)
-            )
-
-            df_combined = df_combined.drop_duplicates(subset=["cryptocurrency", "date"])
-
-            logger.info(f"Data loaded successfully. Shape: {df_combined.shape}")
-            return df_combined
-
-        except Exception as e:
-            logger.error(f"Data loading error: {str(e)}", exc_info=True)
-            return pd.DataFrame()
-
-
-class FeatureEngineer:
-    @staticmethod
-    def prepare_features(data, lookback_window=30):
-        if data.empty:
-            raise ValueError("Empty input data")
-
-        data = data.sort_values("date").set_index("date")
-
-        data["day_of_week"] = data.index.dayofweek
-        data["month"] = data.index.month
-        data["hour"] = data.index.hour
-
-        for lag in range(1, lookback_window + 1):
-            data[f"close_lag_{lag}"] = data["close_price"].shift(lag)
-
-        data["price_range"] = data["high_price"] - data["low_price"]
-        data["typical_price"] = (
-            data["high_price"] + data["low_price"] + data["close_price"]
-        ) / 3
-
-        data["news_length"] = data["description"].str.len().fillna(0)
-
-        data = data.ffill().bfill().dropna(subset=["close_price"])
-
-        return data
-
-
-class ModelFactory:
-    @staticmethod
-    def get_models():
-        return {
-            "RandomForest": {
-                "model": RandomForestRegressor(random_state=42),
-                "params": {
-                    "n_estimators": [100, 200],
-                    "max_depth": [5, 10],
-                    "min_samples_split": [2, 5],
-                },
-            },
-            "XGBoost": {
-                "model": XGBRegressor(enable_categorical=True, random_state=42),
-                "params": {
-                    "n_estimators": [100, 150],
-                    "max_depth": [3, 5],
-                    "learning_rate": [0.05, 0.1],
-                },
-            },
-            "LightGBM": {
-                "model": LGBMRegressor(random_state=42),
-                "params": {
-                    "num_leaves": [31, 63],
-                    "learning_rate": [0.05, 0.1],
-                    "n_estimators": [100, 200],
-                },
-            },
-        }
-
-
-class CryptoPredictor:
-    def __init__(self, lookback_window=30):
-        self.lookback_window = lookback_window
-        self.scaler = StandardScaler()
-
-    def train_predict(self, data):
-        predictions = []
-
-        for crypto, crypto_data in data.groupby("cryptocurrency"):
-            try:
-                crypto_data = FeatureEngineer.prepare_features(
-                    crypto_data, self.lookback_window
-                )
-                features = crypto_data.drop(
-                    columns=["cryptocurrency", "close_price"], errors="ignore"
-                )
-                target = crypto_data["close_price"]
-
-                if len(features) < 100:
-                    logger.warning(
-                        f"Not enough data for {crypto}: {len(features)} samples"
-                    )
-                    continue
-
-                split_idx = int(0.8 * len(features))
-                X_train, X_test = features.iloc[:split_idx], features.iloc[split_idx:]
-                y_train, y_test = target.iloc[:split_idx], target.iloc[split_idx:]
-
-                X_train_scaled = self.scaler.fit_transform(X_train)
-                X_test_scaled = (
-                    self.scaler.transform(X_test) if not X_test.empty else None
-                )
-
-                model_results = []
-                for name, config in ModelFactory.get_models().items():
-                    try:
-                        grid_search = GridSearchCV(
-                            estimator=config["model"],
-                            param_grid=config["params"],
-                            cv=TimeSeriesSplit(n_splits=3),
-                            scoring="neg_mean_absolute_percentage_error",
-                            n_jobs=-1,
-                            verbose=0,
-                        )
-                        grid_search.fit(X_train_scaled, y_train)
-
-                        best_model = grid_search.best_estimator_
-                        test_score = (
-                            mean_absolute_percentage_error(
-                                y_test, best_model.predict(X_test_scaled)
-                            )
-                            if not X_test.empty
-                            else 0
-                        )
-
-                        model_results.append(
-                            {
-                                "name": name,
-                                "model": best_model,
-                                "train_score": grid_search.best_score_,
-                                "test_score": test_score,
-                            }
-                        )
-                    except Exception as e:
-                        logger.error(f"Model {name} failed for {crypto}: {str(e)}")
-
-                current_features = self.scaler.transform(features.iloc[[-1]])
-                current_price = target.iloc[-1]
-
-                for result in model_results:
-                    try:
-                        predicted_price = result["model"].predict(current_features)[0]
-                        predictions.append(
-                            {
-                                "cryptocurrency": crypto,
-                                "model_type": result["name"],
-                                "current_price": current_price,
-                                "predicted_close": predicted_price,
-                                "predicted_change": predicted_price - current_price,
-                                "confidence": max(0, 1 - abs(result["test_score"])),
-                            }
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Prediction failed for {result['name']} on {crypto}: {str(e)}"
-                        )
-
-            except Exception as e:
-                logger.error(f"Processing failed for {crypto}: {str(e)}", exc_info=True)
-
-        return predictions
-
-
-@transaction.atomic
-def save_predictions(predictions):
-    if not predictions:
-        logger.warning("No predictions to save")
-        return
-
-    current_date = timezone.now().date()
-    bulk_entries = []
-
-    for pred in predictions:
-        bulk_entries.append(
-            ShortTermCryptoPrediction(
-                cryptocurrency_pair=pred["cryptocurrency"],
-                prediction_date=current_date,
-                model_type=pred["model_type"],
-                predicted_price_change=pred["predicted_change"],
-                predicted_close=pred["predicted_close"],
-                current_price=pred["current_price"],
-                confidence_level=pred["confidence"],
-            )
+        market_data = MarketData.objects.filter(
+            date__gte=now - timezone.timedelta(days=3 * 365)
+        ).values(
+            "cryptocurrency",
+            "date",
+            "open_price",
+            "high_price",
+            "low_price",
+            "close_price",
+            "volume",
+            "exchange",
+        )
+        df_market = pd.DataFrame(market_data)
+        df_market["date"] = pd.to_datetime(df_market["date"], utc=True).dt.tz_localize(
+            None
         )
 
-    try:
-        ShortTermCryptoPrediction.objects.bulk_create(
-            bulk_entries,
-            update_conflicts=True,
-            update_fields=[
-                "predicted_price_change",
-                "predicted_close",
-                "current_price",
-                "confidence_level",
-            ],
-            unique_fields=["cryptocurrency_pair", "prediction_date", "model_type"],
+        indicator_query = IndicatorData.objects.filter(
+            date__gte=now - timezone.timedelta(days=2 * 365)
         )
-        logger.info(f"Successfully saved/updated {len(bulk_entries)} predictions")
-    except Exception as e:
-        logger.error(f"Failed to save predictions: {str(e)}")
-
-
-def run_predictions():
-    try:
-        logger.info("Starting prediction pipeline")
-
-        data = DataLoader.load_data(short_term_indicators())
-        if data.empty:
-            raise ValueError("No data available for prediction")
-
-        predictor = CryptoPredictor(lookback_window=30)
-        predictions = predictor.train_predict(data)
-
-        if predictions:
-            save_predictions(predictions)
-            logger.info(
-                f"Prediction pipeline completed. Generated {len(predictions)} predictions"
+        if selected_indicators:
+            indicator_query = indicator_query.filter(
+                indicator_name__in=selected_indicators
             )
-        else:
-            logger.warning("Prediction pipeline completed with no results")
 
-        return True
+        indicator_data = indicator_query.values(
+            "cryptocurrency", "date", "indicator_name", "value"
+        )
+
+        df_indicators = pd.DataFrame(indicator_data)
+        df_indicators["date"] = pd.to_datetime(
+            df_indicators["date"], utc=True
+        ).dt.tz_localize(None)
+        df_indicators_wide = df_indicators.pivot_table(
+            index=["cryptocurrency", "date"],
+            columns="indicator_name",
+            values="value",
+            aggfunc="first",
+        ).reset_index()
+
+        news_data = NewsArticle.objects.filter(
+            published_at__gte=now - timezone.timedelta(days=3)
+        ).values("published_at", "title", "description", "sentiment", "polarity")
+
+        df_news = pd.DataFrame(news_data)
+        df_news.rename(columns={"published_at": "date"}, inplace=True)
+        df_news["date"] = (
+            pd.to_datetime(df_news["date"], utc=True).dt.tz_localize(None).dt.floor("h")
+        )
+
+        sentiment_encoder = LabelEncoder()
+        df_news["sentiment"] = sentiment_encoder.fit_transform(df_news["sentiment"])
+        df_news["polarity"] = pd.to_numeric(df_news["polarity"], errors="coerce")
+
+        df_combined = pd.merge(
+            df_indicators_wide, df_market, on=["cryptocurrency", "date"], how="inner"
+        )
+
+        df_combined = pd.merge_asof(
+            df_combined.sort_values("date"),
+            df_news.sort_values("date"),
+            on="date",
+            direction="nearest",
+            tolerance=pd.Timedelta("6h"),
+        )
+
+        numeric_cols = df_combined.select_dtypes(include=np.number).columns
+        df_combined[numeric_cols] = df_combined[numeric_cols].ffill().fillna(0)
+
+        text_cols = ["title", "description"]
+        df_combined[text_cols] = df_combined[text_cols].fillna("")
+
+        df_combined["sentiment"] = df_combined["sentiment"].fillna(0)
+        df_combined["polarity"] = df_combined["polarity"].fillna(0)
+
+        if df_combined.isnull().any().any():
+            logger.warning(
+                f"Пропущенные значения после обработки: {df_combined.isnull().sum()}"
+            )
+
+        return df_combined
 
     except Exception as e:
-        logger.error(f"Prediction pipeline failed: {str(e)}", exc_info=True)
-        return False
+        logger.error(f"Ошибка при загрузке данных: {str(e)}", exc_info=True)
+        return pd.DataFrame()
 
 
 def short_term_indicators():
@@ -378,15 +131,8 @@ def short_term_indicators():
         "ATR_30",
         "Stochastic_7",
         "Stochastic_14",
-        "BB_upper_14",
-        "BB_lower_14",
-        "BB_upper_30",
-        "BB_lower_30",
         "MACD_12_26",
         "MACD_signal_9",
-        "Lag_12",
-        "Lag_26",
-        "Lag_9",
         "seasonality_weekday_Wednesday",
         "seasonality_weekday_Tuesday",
         "seasonality_weekday_Thursday",
@@ -413,3 +159,233 @@ def short_term_indicators():
         "sentiment",
         "polarity",
     ]
+
+
+def prepare_data_for_ml(data):
+    if data.empty:
+        raise ValueError("Пустой DataFrame на входе")
+
+    if "close_price" not in data.columns:
+        raise KeyError(
+            f"Отсутствует столбец close_price в данных. Доступные колонки: {list(data.columns)}"
+        )
+
+    if len(data) < 3:
+        raise ValueError(f"Недостаточно данных для обучения: {len(data)} samples")
+
+    data_clean = data.dropna(subset=["close_price"]).copy()
+
+    features = data_clean.drop(
+        columns=["cryptocurrency", "date", "close_price"], errors="ignore"
+    )
+    features = features.fillna(0)
+    target = data_clean["close_price"].shift(-1).dropna()
+
+    features = features.iloc[:-1]
+    target = target.iloc[:-1] if len(target) > len(features) else target
+
+    features_array = features.copy().values
+    target_array = target.copy().values
+
+    if len(features_array) != len(target_array):
+        min_length = min(len(features_array), len(target_array))
+        features_array = features_array[:min_length]
+        target_array = target_array[:min_length]
+
+    if len(features_array) == 0 or len(target_array) == 0:
+        raise ValueError("Нулевой размер данных после обработки")
+
+    if np.isnan(features_array).any():
+        logger.warning("Найдены NaN в фичах, заменяем на 0")
+        features_array = np.nan_to_num(features_array)
+
+    if np.isnan(target_array).any():
+        logger.warning("Найдены NaN в целевой переменной, заменяем на 0")
+        target_array = np.nan_to_num(target_array)
+
+    return features_array, target_array
+
+
+def short_term_forecasting(data):
+    if data.empty:
+        logger.error("Пустые входные данные для прогнозирования")
+        return []
+
+    models = {
+        "RandomForest": RandomForestRegressor(
+            n_estimators=50, max_depth=3, min_samples_split=3, random_state=42
+        ),
+        "XGBoost": XGBRegressor(
+            n_estimators=50, max_depth=3, learning_rate=0.05, enable_categorical=True
+        ),
+        "LightGBM": LGBMRegressor(
+            n_estimators=50,
+            max_depth=3,
+            learning_rate=0.05,
+            min_child_samples=2,
+            num_leaves=7,
+            force_col_wise=True,
+        ),
+        "CatBoost": CatBoostRegressor(
+            iterations=50, depth=3, learning_rate=0.05, verbose=0
+        ),
+        "AdaBoost": AdaBoostRegressor(n_estimators=50, learning_rate=0.05),
+        "MLP": MLPRegressor(
+            hidden_layer_sizes=(50,),
+            activation="relu",
+            solver="adam",
+            learning_rate="adaptive",
+            max_iter=1000,
+            early_stopping=True,
+            tol=1e-5,
+            n_iter_no_change=20,
+        ),
+    }
+
+    features_config = {
+        "RandomForest": ["price_change_1d", "SMA_7", "RSI_7d", "volume"],
+        "XGBoost": ["price_change_7d", "SMA_7", "RSI_14d", "volume"],
+        "LightGBM": ["SMA_14", "volatility_14d", "RSI_30d", "volume"],
+        "CatBoost": ["SMA_30", "RSI_14d", "volume"],
+        "AdaBoost": ["price_change_14d", "ATR_14", "volume"],
+        "MLP": ["price_change_1d", "RSI_7d", "SMA_7", "volume"],
+    }
+
+    predictions = []
+
+    for crypto, crypto_data in data.groupby("cryptocurrency"):
+        crypto_data = crypto_data.sort_values("date").reset_index(drop=True)
+
+        if len(crypto_data) < 5:
+            logger.warning(
+                f"Недостаточно данных для {crypto}: {len(crypto_data)} записей"
+            )
+            continue
+
+        current_price = crypto_data["close_price"].iloc[-1]
+
+        for model_name, model in models.items():
+            try:
+                selected_features = features_config[model_name]
+                available_features = [
+                    f for f in selected_features if f in crypto_data.columns
+                ]
+
+                missing_features = set(selected_features) - set(available_features)
+                if missing_features:
+                    logger.warning(
+                        f"Отсутствуют фичи для {model_name} ({crypto}): {missing_features}"
+                    )
+
+                if not available_features:
+                    logger.warning(f"Нет доступных фич для {model_name} в {crypto}")
+                    continue
+
+                try:
+                    X, y = prepare_data_for_ml(
+                        crypto_data[
+                            ["cryptocurrency", "date", "close_price"]
+                            + available_features
+                        ]
+                    )
+                except Exception as e:
+                    logger.error(f"Ошибка подготовки данных для {crypto}: {str(e)}")
+                    continue
+
+                split_idx = max(2, int(0.8 * len(X)))
+                if split_idx < 2 or (len(X) - split_idx) < 1:
+                    logger.warning(
+                        f"Недостаточно данных для разделения: {len(X)} samples"
+                    )
+                    X_train, y_train = X.copy(), y.copy()
+                    X_test, y_test = np.array([]), np.array([])
+                else:
+                    X_train, X_test = X[:split_idx].copy(), X[split_idx:].copy()
+                    y_train, y_test = y[:split_idx].copy(), y[split_idx:].copy()
+
+                model.fit(X_train, y_train)
+
+                test_score = 0.0
+                if len(X_test) > 0:
+                    try:
+                        test_score = model.score(X_test, y_test)
+                    except Exception as e:
+                        logger.warning(f"Ошибка оценки модели: {str(e)}")
+
+                last_features = (
+                    crypto_data[available_features].iloc[-1].values.reshape(1, -1)
+                )
+                y_pred = model.predict(last_features)[0]
+
+                price_change = y_pred - current_price
+
+                predictions.append(
+                    {
+                        "cryptocurrency": crypto,
+                        "predicted_change": price_change,
+                        "predicted_close": y_pred,
+                        "current_price": current_price,
+                        "model_type": model_name,
+                        "confidence": max(0.0, min(test_score, 1.0)),
+                    }
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"Ошибка в модели {model_name} для {crypto}: {str(e)}",
+                    exc_info=True,
+                )
+                continue
+
+    return predictions
+
+
+@transaction.atomic
+def save_predictions(predictions, is_short_term=True):
+    if not predictions:
+        logger.warning("Пустой список прогнозов для сохранения")
+        return
+
+    current_date = timezone.now().date()
+
+    for pred in predictions:
+        try:
+            ShortTermCryptoPrediction.objects.update_or_create(
+                cryptocurrency_pair=pred["cryptocurrency"],
+                prediction_date=current_date,
+                model_type=pred["model_type"],
+                defaults={
+                    "predicted_price_change": pred["predicted_change"],
+                    "predicted_close": pred["predicted_close"],
+                    "current_price": pred["current_price"],
+                    "confidence_level": pred["confidence"],
+                },
+            )
+        except Exception as e:
+            logger.error(
+                f"Ошибка сохранения прогноза для {pred['cryptocurrency']}: {str(e)}"
+            )
+            continue
+
+
+def run_short_predictions():
+    try:
+        indicators = short_term_indicators()
+        data = load_market_and_indicator_data(indicators)
+
+        if not data.empty:
+            logger.info(f"Начало прогнозирования на {len(data)} записях")
+            predictions = short_term_forecasting(data)
+
+            if predictions:
+                save_predictions(predictions, is_short_term=True)
+                logger.info(f"Успешно сохранено {len(predictions)} прогнозов")
+            else:
+                logger.warning("Нет прогнозов для сохранения")
+        else:
+            logger.error("Нет данных для прогнозирования")
+
+    except Exception as e:
+        logger.error(
+            f"Критическая ошибка в run_short_predictions: {str(e)}", exc_info=True
+        )

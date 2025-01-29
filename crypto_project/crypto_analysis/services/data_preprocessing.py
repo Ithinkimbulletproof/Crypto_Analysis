@@ -195,21 +195,6 @@ def calculate_indicators_sync(df: pd.DataFrame, crypto: str) -> pd.DataFrame:
                 elif indicator == "lag_macd":
                     df[f"Lag_{period}"] = df["close_price"].shift(periods=period)
 
-        weekdays = [
-            "Monday",
-            "Tuesday",
-            "Wednesday",
-            "Thursday",
-            "Friday",
-            "Saturday",
-            "Sunday",
-        ]
-        for day in weekdays:
-            df[f"seasonality_weekday_{day}"] = (df.index.day_name() == day).astype(int)
-
-        for month in range(1, 13):
-            df[f"seasonality_month_{month}"] = (df.index.month == month).astype(int)
-
         return df
     except Exception as e:
         logger.error(f"Ошибка расчета индикаторов: {e}")
