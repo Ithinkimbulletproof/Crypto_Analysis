@@ -2,7 +2,7 @@ import time
 import asyncio
 import logging
 from django.core.management.base import BaseCommand
-from crypto_analysis.services.data_fetcher import fetch_data
+from crypto_analysis.fetching.data_fetcher import fetch_data
 
 
 logger = logging.getLogger(__name__)

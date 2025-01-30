@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 from crypto_analysis.models import MarketData, PreprocessedData
-from crypto_analysis.services.data_preprocessing import (
+from crypto_analysis.fetching.data_preprocessing import (
     fetch_data_from_database,
     preprocess_data,
     split_data_by_period,
@@ -56,10 +56,10 @@ def test_preprocess_data(create_test_data):
 
 
 @pytest.mark.django_db
-@patch("crypto_analysis.services.data_preprocessing.save_to_database")
+@patch("crypto_analysis.fetching.data_preprocessing.save_to_database")
 def test_process_and_export_data(mock_save_to_database, create_test_data):
     with patch(
-        "crypto_analysis.services.data_preprocessing.fetch_data_from_database",
+        "crypto_analysis.fetching.data_preprocessing.fetch_data_from_database",
         return_value=[
             (
                 datetime(2021, 6, 1, tzinfo=timezone.utc),

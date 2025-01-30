@@ -2,7 +2,7 @@ import pytest
 import pandas as pd
 from unittest.mock import patch
 from crypto_analysis.models import PreprocessedData, TechAnalysed
-from crypto_analysis.services.tech_analysis import (
+from crypto_analysis.fetching.tech_analysis import (
     fetch_data_from_db,
     split_data_by_period,
     enhance_data_processing,

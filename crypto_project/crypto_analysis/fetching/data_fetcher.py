@@ -28,9 +28,9 @@ def get_default_start_date():
 @sync_to_async
 def get_last_date(symbol):
     try:
-        last_date = MarketData.objects.filter(
-            cryptocurrency=symbol
-        ).aggregate(Max("date"))["date__max"]
+        last_date = MarketData.objects.filter(cryptocurrency=symbol).aggregate(
+            Max("date")
+        )["date__max"]
         logger.info(f"Последняя дата для {symbol}: {last_date}")
         return last_date
     except Exception as e:
@@ -133,15 +133,9 @@ def store_data_bulk(all_data):
         avg_close = sum(closes) / len(closes)
         total_volume = sum(volumes)
 
-        averaged_records.append((
-            symbol,
-            timestamp,
-            avg_open,
-            max_high,
-            min_low,
-            avg_close,
-            total_volume
-        ))
+        averaged_records.append(
+            (symbol, timestamp, avg_open, max_high, min_low, avg_close, total_volume)
+        )
 
     existing = set(
         MarketData.objects.filter(
@@ -149,7 +143,7 @@ def store_data_bulk(all_data):
             date__in=[
                 datetime.fromtimestamp(d[1] / 1000, tz=timezone.utc)
                 for d in averaged_records
-            ]
+            ],
         ).values_list("cryptocurrency", "date")
     )
 
@@ -164,7 +158,8 @@ def store_data_bulk(all_data):
             volume=volume,
         )
         for (symbol, timestamp, open, high, low, close, volume) in averaged_records
-        if (symbol, datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)) not in existing
+        if (symbol, datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc))
+        not in existing
     ]
 
     if new_data:

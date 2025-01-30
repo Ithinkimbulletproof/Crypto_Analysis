@@ -2,7 +2,7 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 from crypto_analysis.models import MarketData
-from crypto_analysis.services.data_fetcher import (
+from crypto_analysis.fetching.data_fetcher import (
     get_last_date,
     fetch_data,
     process_exchange,
