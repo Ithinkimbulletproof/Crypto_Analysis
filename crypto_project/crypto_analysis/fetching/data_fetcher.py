@@ -43,7 +43,7 @@ def get_since(last_date, default_start_date):
 
 
 async def fetch_data():
-    exchanges = [ccxt_async.binance(), ccxt_async.kraken()]
+    exchanges = [ccxt_async.binance(), ccxt_async.bybit(), ccxt_async.okx()]
     symbols = os.getenv("CRYPTOPAIRS").split(",")
     timeframe = "15m"
     default_start_date = get_default_start_date()

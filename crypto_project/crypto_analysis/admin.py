@@ -1,77 +1,43 @@
 from django.contrib import admin
-from crypto_analysis.models import (
-    ShortTermCryptoPrediction,
-    LongTermCryptoPrediction,
-    MarketData,
-    IndicatorData,
-    NewsArticle,
-)
-
-
-@admin.register(ShortTermCryptoPrediction)
-class ShortTermCryptoPredictionAdmin(admin.ModelAdmin):
-    list_display = (
-        "cryptocurrency_pair",
-        "prediction_date",
-        "predicted_price_change",
-        "predicted_close",
-        "current_price",
-        "model_type",
-        "confidence_level",
-    )
-    list_filter = ("cryptocurrency_pair", "prediction_date", "model_type")
-    search_fields = ("cryptocurrency_pair", "model_type")
-    ordering = ("-prediction_date",)
-
-
-@admin.register(LongTermCryptoPrediction)
-class LongTermCryptoPredictionAdmin(admin.ModelAdmin):
-    list_display = (
-        "cryptocurrency_pair",
-        "prediction_date",
-        "predicted_price_change",
-        "predicted_close",
-        "model_type",
-        "confidence_level",
-    )
-    list_filter = ("cryptocurrency_pair", "prediction_date", "model_type")
-    search_fields = ("cryptocurrency_pair", "model_type")
-    ordering = ("-prediction_date",)
+from .models import MarketData, NewsArticle, IndicatorData, SentimentData, KeyEntity
 
 
 @admin.register(MarketData)
 class MarketDataAdmin(admin.ModelAdmin):
-    list_display = (
-        "cryptocurrency",
-        "date",
-        "open_price",
-        "high_price",
-        "low_price",
-        "close_price",
-        "volume",
-    )
+    list_display = ("cryptocurrency", "date", "open_price", "close_price", "volume")
     list_filter = ("cryptocurrency", "date")
-    ordering = ("-date",)
-
-
-@admin.register(IndicatorData)
-class IndicatorDataAdmin(admin.ModelAdmin):
-    list_display = ("cryptocurrency", "date", "indicator_name", "value")
-    list_filter = ("cryptocurrency", "indicator_name", "date")
-    search_fields = ("cryptocurrency", "indicator_name")
-    ordering = ("-date",)
+    search_fields = ("cryptocurrency",)
 
 
 @admin.register(NewsArticle)
 class NewsArticleAdmin(admin.ModelAdmin):
+    list_display = ("title", "source", "published_at", "language")
+    list_filter = ("source", "language")
+    search_fields = ("title", "description")
+
+
+@admin.register(IndicatorData)
+class IndicatorDataAdmin(admin.ModelAdmin):
+    list_display = ("cryptocurrency", "indicator_name", "date", "value")
+    list_filter = ("cryptocurrency", "indicator_name")
+    search_fields = ("cryptocurrency", "indicator_name")
+
+
+@admin.register(SentimentData)
+class SentimentDataAdmin(admin.ModelAdmin):
     list_display = (
-        "title",
-        "published_at",
-        "sentiment",
-        "polarity",
-        "source",
-        "language",
+        "article",
+        "vader_compound",
+        "bert_positive",
+        "combined_score",
+        "analyzed_at",
     )
-    list_filter = ("sentiment", "language", "published_at")
-    search_fields = ("title", "description", "source")
-    ordering = ("-published_at",)
+    list_filter = ("combined_score", "bert_positive")
+    search_fields = ("article__title",)
+
+
+@admin.register(KeyEntity)
+class KeyEntityAdmin(admin.ModelAdmin):
+    list_display = ("article", "entity_type", "text", "count")
+    list_filter = ("entity_type",)
+    search_fields = ("text", "article__title")

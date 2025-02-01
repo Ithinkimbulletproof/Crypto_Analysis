@@ -18,24 +18,24 @@ class MarketData(models.Model):
 
 
 class NewsArticle(models.Model):
-    title = models.CharField(max_length=500)
-    description = models.TextField()
-    url = models.URLField()
-    sentiment = models.CharField(
-        max_length=20,
-        choices=[
-            ("POSITIVE", "Positive"),
-            ("NEGATIVE", "Negative"),
-            ("NEUTRAL", "Neutral"),
-        ],
-    )
-    polarity = models.FloatField(null=True, blank=True)
-    published_at = models.DateTimeField(null=True, blank=True)
-    source = models.CharField(max_length=200, null=True, blank=True)
-    language = models.CharField(max_length=10, null=True, blank=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(max_length=2000)
+    url = models.URLField(unique=True)
+    published_at = models.DateTimeField()
+    source = models.CharField(max_length=50)
+    language = models.CharField(max_length=10, default="en")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["published_at"]),
+            models.Index(fields=["source"]),
+        ]
+        ordering = ["-published_at"]
 
     def __str__(self):
-        return self.title
+        return self.title[:50]
 
 
 class IndicatorData(models.Model):
@@ -54,3 +54,44 @@ class IndicatorData(models.Model):
 
     def __str__(self):
         return f"{self.cryptocurrency} - {self.indicator_name} - {self.date}"
+
+
+class SentimentData(models.Model):
+    article = models.OneToOneField(
+        NewsArticle, on_delete=models.CASCADE, related_name="sentiment_data"
+    )
+    vader_compound = models.FloatField()
+    bert_positive = models.FloatField()
+    emotion_scores = models.JSONField(default=dict)
+    topic_scores = models.JSONField(default=dict)
+    combined_score = models.FloatField()
+    analyzed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["combined_score"]),
+            models.Index(fields=["bert_positive"]),
+        ]
+
+
+class KeyEntity(models.Model):
+    ENTITY_TYPES = [
+        ("ORG", "Organization"),
+        ("PRODUCT", "Product"),
+        ("GPE", "Location"),
+        ("MONEY", "Money"),
+    ]
+
+    article = models.ForeignKey(
+        NewsArticle, on_delete=models.CASCADE, related_name="entities"
+    )
+    entity_type = models.CharField(max_length=20, choices=ENTITY_TYPES)
+    text = models.CharField(max_length=255)
+    count = models.IntegerField(default=1)
+
+    class Meta:
+        unique_together = ("article", "entity_type", "text")
+        indexes = [
+            models.Index(fields=["entity_type"]),
+            models.Index(fields=["text"]),
+        ]
