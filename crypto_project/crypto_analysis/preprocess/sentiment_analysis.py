@@ -24,7 +24,7 @@ bert_model = AutoModelForSequenceClassification.from_pretrained(
 emotion_analyzer = pipeline(
     "text-classification",
     model="bhadresh-savani/distilbert-base-uncased-emotion",
-    return_all_scores=True,
+    top_k=None,
     device=0 if device == "cuda" else -1,
 )
 
@@ -136,7 +136,7 @@ def process_entities(text):
 def save_results(batch_results):
     try:
         for result in batch_results:
-            sentiment, _ = SentimentData.objects.update_or_create(
+            sentiment, created = SentimentData.objects.get_or_create(
                 article=result["article"],
                 defaults={
                     "vader_compound": result["vader"]["compound"],
@@ -146,6 +146,9 @@ def save_results(batch_results):
                     "combined_score": calculate_combined_score(result),
                 },
             )
+
+            if not created:
+                continue
 
             for label, entities in result["entities"].items():
                 for entity in entities:
@@ -172,7 +175,7 @@ def calculate_combined_score(result):
     )
 
 
-def run_analysis():
+def analyze_sentiment():
     try:
         queryset = NewsArticle.objects.filter(sentiment_data__isnull=True)
         total = queryset.count()
@@ -198,4 +201,4 @@ def run_analysis():
 
 
 if __name__ == "__main__":
-    run_analysis()
+    analyze_sentiment()
