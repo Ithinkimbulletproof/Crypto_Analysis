@@ -6,6 +6,7 @@ from crypto_analysis.fetching.data_fetcher import fetch_data
 from crypto_analysis.fetching.news_parser import run_full_import
 from crypto_analysis.preprocess.data_preprocessing import preprocess_data
 from crypto_analysis.preprocess.sentiment_analysis import analyze_sentiment
+from crypto_analysis.preprocess.data_aggregator import build_unified_dataframe
 
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,14 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS("Запуск расчёта индикаторов..."))
             start_time = time.time()
             await asyncio.to_thread(analyze_sentiment)
+            time_used = time.time() - start_time
+            self.stdout.write(
+                self.style.SUCCESS(f"Индикаторы рассчитаны за {time_used:.2f} сек")
+            )
+
+            self.stdout.write(self.style.SUCCESS("Запуск расчёта индикаторов..."))
+            start_time = time.time()
+            await asyncio.to_thread(build_unified_dataframe)
             time_used = time.time() - start_time
             self.stdout.write(
                 self.style.SUCCESS(f"Индикаторы рассчитаны за {time_used:.2f} сек")
