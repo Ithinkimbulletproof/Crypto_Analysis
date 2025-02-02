@@ -9,9 +9,12 @@ from crypto_analysis.models import MarketData, IndicatorData
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def preprocess_data():
     start_date = make_aware(datetime.now() - timedelta(days=2000))
-    market_data = MarketData.objects.filter(date__gte=start_date).order_by("cryptocurrency", "date")
+    market_data = MarketData.objects.filter(date__gte=start_date).order_by(
+        "cryptocurrency", "date"
+    )
 
     if not market_data.exists():
         logger.info("Данных в MarketData не найдено.")
@@ -45,7 +48,9 @@ def preprocess_data():
     for crypto, data in grouped:
         logger.info(f"Обрабатываем {crypto}: всего записей = {len(data)}")
         data_calc = data[data["date"] >= calc_start_date]
-        logger.info(f"Для {crypto} используется {len(data_calc)} записей за последние 1900 дней для расчёта.")
+        logger.info(
+            f"Для {crypto} используется {len(data_calc)} записей за последние 1900 дней для расчёта."
+        )
 
         if data_calc.empty:
             logger.info(f"Для {crypto} нет записей за последние 1900 дней. Пропускаем.")
@@ -53,7 +58,9 @@ def preprocess_data():
 
         indicators = calculate_indicators(data_calc)
         indicators = indicators.dropna(subset=["value"])
-        logger.info(f"Для {crypto} получено {len(indicators)} валидных записей индикаторов.")
+        logger.info(
+            f"Для {crypto} получено {len(indicators)} валидных записей индикаторов."
+        )
 
         for _, row in indicators.iterrows():
             key = (crypto, row["date"], row["indicator"])
@@ -72,6 +79,7 @@ def preprocess_data():
         with transaction.atomic():
             IndicatorData.objects.bulk_create(new_entries, batch_size=1000)
             logger.info("Новые записи успешно сохранены в БД.")
+
 
 def calculate_indicators(data):
     indicators = pd.DataFrame()
@@ -135,6 +143,7 @@ def calculate_indicators(data):
 
     logger.info("Все индикаторы вычислены.")
     return indicators
+
 
 def calculate_vwap(data):
     return (data["close_price"] * data["volume"]).cumsum() / data["volume"].cumsum()

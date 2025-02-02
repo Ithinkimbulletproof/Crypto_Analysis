@@ -3,6 +3,7 @@ import asyncio
 import logging
 from django.core.management.base import BaseCommand
 from crypto_analysis.fetching.data_fetcher import fetch_data
+from crypto_analysis.fetching.news_parser import run_full_import
 from crypto_analysis.preprocess.data_preprocessing import preprocess_data
 
 
@@ -31,6 +32,14 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS("Запуск расчёта индикаторов..."))
             start_time = time.time()
             await asyncio.to_thread(preprocess_data)
+            time_used = time.time() - start_time
+            self.stdout.write(
+                self.style.SUCCESS(f"Индикаторы рассчитаны за {time_used:.2f} сек")
+            )
+
+            self.stdout.write(self.style.SUCCESS("Запуск расчёта индикаторов..."))
+            start_time = time.time()
+            await asyncio.to_thread(run_full_import)
             time_used = time.time() - start_time
             self.stdout.write(
                 self.style.SUCCESS(f"Индикаторы рассчитаны за {time_used:.2f} сек")
