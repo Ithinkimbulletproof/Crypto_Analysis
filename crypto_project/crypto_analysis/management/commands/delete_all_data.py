@@ -15,6 +15,6 @@ class Command(BaseCommand):
         IndicatorData.objects.all().delete()
         MarketData.objects.all().delete()
         # NewsArticle.objects.all().delete()
-        SentimentData.objects.all().delete()
-        KeyEntity.objects.all().delete()
+        # SentimentData.objects.all().delete()
+        # KeyEntity.objects.all().delete()
         self.stdout.write(self.style.SUCCESS("Все данные успешно удалены"))

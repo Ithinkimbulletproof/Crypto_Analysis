@@ -1,4 +1,6 @@
 import pandas as pd
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from crypto_analysis.models import MarketData, IndicatorData, SentimentData, KeyEntity
 
 
@@ -48,7 +50,6 @@ def get_news_sentiment_df():
     if not df.empty:
         df.rename(columns={"article__published_at": "date"}, inplace=True)
         df["news_hour"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.floor("h")
-
         df_sentiment = (
             df.groupby("news_hour")[
                 ["vader_compound", "bert_positive", "combined_score"]
@@ -121,9 +122,111 @@ def build_unified_dataframe():
     return df_unified
 
 
+def remove_outliers_iqr(data, columns):
+    for col in columns:
+        Q1 = data[col].quantile(0.25)
+        Q3 = data[col].quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+        data = data[(data[col] >= lower_bound) & (data[col] <= upper_bound)]
+    return data
+
+
+def preprocessing_data(df):
+    df = df.sort_values("date").reset_index(drop=True)
+
+    price_cols = ["open_price", "high_price", "low_price", "close_price"]
+
+    df = remove_outliers_iqr(df, price_cols)
+
+    volume_cols = ["volume"]
+    sentiment_cols = ["vader_compound", "bert_positive", "combined_score"]
+    numeric_cols = price_cols + volume_cols + sentiment_cols
+
+    additional_numeric = df.select_dtypes(include=[np.number]).columns.tolist()
+    for col in additional_numeric:
+        if col not in numeric_cols and col not in ["close_price_24h"]:
+            numeric_cols.append(col)
+
+    df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].median())
+    df["close_price_24h"] = df["close_price"].shift(-24)
+    df = df.dropna(subset=["close_price_24h"]).reset_index(drop=True)
+
+    features_to_scale = numeric_cols.copy()
+    if "close_price_24h" in features_to_scale:
+        features_to_scale.remove("close_price_24h")
+
+    df_minmax = df.copy()
+    df_std = df.copy()
+
+    minmax_scaler = MinMaxScaler()
+    df_minmax[features_to_scale] = minmax_scaler.fit_transform(
+        df_minmax[features_to_scale]
+    )
+
+    std_scaler = StandardScaler()
+    df_std[features_to_scale] = std_scaler.fit_transform(df_std[features_to_scale])
+
+    split_idx = int(len(df_minmax) * 0.8)
+
+    X_minmax = df_minmax[features_to_scale]
+    y_minmax = df_minmax["close_price_24h"]
+    X_train_minmax = X_minmax.iloc[:split_idx]
+    X_test_minmax = X_minmax.iloc[split_idx:]
+    y_train_minmax = y_minmax.iloc[:split_idx]
+    y_test_minmax = y_minmax.iloc[split_idx:]
+
+    X_std = df_std[features_to_scale]
+    y_std = df_std["close_price_24h"]
+    X_train_std = X_std.iloc[:split_idx]
+    X_test_std = X_std.iloc[split_idx:]
+    y_train_std = y_std.iloc[:split_idx]
+    y_test_std = y_std.iloc[split_idx:]
+
+    print("Размеры обучающей и тестовой выборок (MinMax):")
+    print("X_train:", X_train_minmax.shape, "X_test:", X_test_minmax.shape)
+    print("Размеры обучающей и тестовой выборок (Standard):")
+    print("X_train:", X_train_std.shape, "X_test:", X_test_std.shape)
+
+    processed_data = {
+        "df_original": df,
+        "df_minmax": df_minmax,
+        "df_std": df_std,
+        "X_train_minmax": X_train_minmax,
+        "X_test_minmax": X_test_minmax,
+        "y_train_minmax": y_train_minmax,
+        "y_test_minmax": y_test_minmax,
+        "X_train_std": X_train_std,
+        "X_test_std": X_test_std,
+        "y_train_std": y_train_std,
+        "y_test_std": y_test_std,
+    }
+    return processed_data, features_to_scale
+
+
 if __name__ == "__main__":
-    df = build_unified_dataframe()
-    print("Объединенный DataFrame:")
-    print(df.head())
-    print(f"Размерность итогового DataFrame: {df.shape}")
-    df.to_csv("unified_data.csv", index=False)
+    df_unified = build_unified_dataframe()
+    print("Объединённый DataFrame:")
+    print(df_unified.head())
+    print(f"Размерность итогового DataFrame: {df_unified.shape}")
+    df_unified.to_csv("unified_data.csv", index=False)
+
+    processed_data, features = preprocessing_data(df_unified)
+
+    processed_data["df_minmax"].to_csv("processed_data_minmax.csv", index=False)
+    processed_data["df_std"].to_csv("processed_data_std.csv", index=False)
+
+    print("Предобработка завершена. Обучающие и тестовые выборки готовы для моделей:")
+    print(
+        "MinMax версия: X_train",
+        processed_data["X_train_minmax"].shape,
+        "X_test",
+        processed_data["X_test_minmax"].shape,
+    )
+    print(
+        "Standard версия: X_train",
+        processed_data["X_train_std"].shape,
+        "X_test",
+        processed_data["X_test_std"].shape,
+    )
