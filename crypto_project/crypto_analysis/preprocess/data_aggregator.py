@@ -89,14 +89,6 @@ def build_unified_dataframe():
     df_news = get_news_sentiment_df()
     df_entities = get_key_entities_df()
 
-    print("Размерность MarketData:", df_market.shape)
-    print("Размерность IndicatorData (после pivot):", df_indicators.shape)
-    print("Размерность NewsSentiment:", df_news.shape)
-    print("Размерность KeyEntities:", df_entities.shape)
-
-    print("Уникальные news_hour в MarketData:", df_market["news_hour"].unique())
-    print("Уникальные news_hour в NewsSentiment:", df_news["news_hour"].unique())
-
     if df_market.empty:
         return pd.DataFrame()
 
@@ -107,7 +99,6 @@ def build_unified_dataframe():
         how="left",
         suffixes=("", "_ind"),
     )
-    print("Размерность после объединения MarketData и IndicatorData:", df_merged.shape)
 
     if not df_news.empty:
         df_merged = pd.merge(
@@ -184,11 +175,6 @@ def preprocessing_data(df):
     y_train_std = y_std.iloc[:split_idx]
     y_test_std = y_std.iloc[split_idx:]
 
-    print("Размеры обучающей и тестовой выборок (MinMax):")
-    print("X_train:", X_train_minmax.shape, "X_test:", X_test_minmax.shape)
-    print("Размеры обучающей и тестовой выборок (Standard):")
-    print("X_train:", X_train_std.shape, "X_test:", X_test_std.shape)
-
     processed_data = {
         "df_original": df,
         "df_minmax": df_minmax,
@@ -207,26 +193,9 @@ def preprocessing_data(df):
 
 if __name__ == "__main__":
     df_unified = build_unified_dataframe()
-    print("Объединённый DataFrame:")
-    print(df_unified.head())
-    print(f"Размерность итогового DataFrame: {df_unified.shape}")
     df_unified.to_csv("unified_data.csv", index=False)
 
     processed_data, features = preprocessing_data(df_unified)
 
     processed_data["df_minmax"].to_csv("processed_data_minmax.csv", index=False)
     processed_data["df_std"].to_csv("processed_data_std.csv", index=False)
-
-    print("Предобработка завершена. Обучающие и тестовые выборки готовы для моделей:")
-    print(
-        "MinMax версия: X_train",
-        processed_data["X_train_minmax"].shape,
-        "X_test",
-        processed_data["X_test_minmax"].shape,
-    )
-    print(
-        "Standard версия: X_train",
-        processed_data["X_train_std"].shape,
-        "X_test",
-        processed_data["X_test_std"].shape,
-    )
