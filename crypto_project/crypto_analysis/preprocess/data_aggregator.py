@@ -125,6 +125,14 @@ def remove_outliers_iqr(data, columns):
 
 
 def preprocessing_data(df):
+    if "date" not in df.columns:
+        if "date_x" in df.columns:
+            df = df.rename(columns={"date_x": "date"})
+        elif "date_y" in df.columns:
+            df = df.rename(columns={"date_y": "date"})
+        else:
+            raise KeyError("Не найдена колонка 'date' в DataFrame.")
+
     df = df.sort_values("date").reset_index(drop=True)
 
     price_cols = ["open_price", "high_price", "low_price", "close_price"]

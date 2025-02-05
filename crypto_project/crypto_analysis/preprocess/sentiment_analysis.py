@@ -180,23 +180,23 @@ def analyze_sentiment():
         queryset = NewsArticle.objects.filter(sentiment_data__isnull=True)
         total = queryset.count()
 
-        logger.info(f"Starting advanced analysis for {total} articles")
+        logger.info(f"Начинаем расширенный анализ для {total} статей")
 
         for i in range(0, total, BATCH_SIZE):
             batch = list(queryset[i : i + BATCH_SIZE])
             batch_results = analyze_batch(batch)
             save_results(batch_results)
 
-            logger.info(f"Processed {min(i + BATCH_SIZE, total)}/{total} articles")
+            logger.info(f"Обработано {min(i + BATCH_SIZE, total)}/{total} статей")
 
             if device == "cuda":
                 torch.cuda.empty_cache()
 
-        logger.info("Analysis completed successfully")
+        logger.info("Анализ успешно завершен")
         return True
 
     except Exception as e:
-        logger.error(f"Analysis pipeline failed: {str(e)}")
+        logger.error(f"Анализ не выполнен: {str(e)}")
         return False
 
 
