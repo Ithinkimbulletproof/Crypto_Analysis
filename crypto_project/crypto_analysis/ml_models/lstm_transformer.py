@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
+import numpy as np
 
 
 class LSTMModel(nn.Module):
@@ -18,13 +19,16 @@ class LSTMModel(nn.Module):
 
 def train_lstm(X_train, y_train, epochs=10, batch_size=32, lr=0.001):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if len(X_train.shape) == 2:
+    X_train_np = X_train.astype(float).values
+    y_train_np = y_train.astype(float).values
+
+    if len(X_train_np.shape) == 2:
         X_train_tensor = torch.tensor(
-            X_train.values.reshape(-1, 1, X_train.shape[1]), dtype=torch.float32
+            X_train_np.reshape(-1, 1, X_train_np.shape[1]), dtype=torch.float32
         )
     else:
-        X_train_tensor = torch.tensor(X_train.values, dtype=torch.float32)
-    y_train_tensor = torch.tensor(y_train.values.reshape(-1, 1), dtype=torch.float32)
+        X_train_tensor = torch.tensor(X_train_np, dtype=torch.float32)
+    y_train_tensor = torch.tensor(y_train_np.reshape(-1, 1), dtype=torch.float32)
 
     input_size = X_train_tensor.shape[2]
     model = LSTMModel(input_size=input_size).to(device)
@@ -69,13 +73,16 @@ class TransformerModel(nn.Module):
 
 def train_transformer(X_train, y_train, epochs=10, batch_size=32, lr=0.001):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if len(X_train.shape) == 2:
+    X_train_np = X_train.astype(float).values
+    y_train_np = y_train.astype(float).values
+
+    if len(X_train_np.shape) == 2:
         X_train_tensor = torch.tensor(
-            X_train.values.reshape(-1, 1, X_train.shape[1]), dtype=torch.float32
+            X_train_np.reshape(-1, 1, X_train_np.shape[1]), dtype=torch.float32
         )
     else:
-        X_train_tensor = torch.tensor(X_train.values, dtype=torch.float32)
-    y_train_tensor = torch.tensor(y_train.values.reshape(-1, 1), dtype=torch.float32)
+        X_train_tensor = torch.tensor(X_train_np, dtype=torch.float32)
+    y_train_tensor = torch.tensor(y_train_np.reshape(-1, 1), dtype=torch.float32)
 
     input_size = X_train_tensor.shape[2]
     model = TransformerModel(input_size=input_size).to(device)
