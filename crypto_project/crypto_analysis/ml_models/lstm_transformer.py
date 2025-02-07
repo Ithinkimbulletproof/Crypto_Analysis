@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-import numpy as np
 
 
 class LSTMModel(nn.Module):
@@ -19,22 +18,18 @@ class LSTMModel(nn.Module):
 
 def train_lstm(X_train, y_train, epochs=10, batch_size=32, lr=0.001):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    X_train_np = X_train.astype(float).values
-    y_train_np = y_train.astype(float).values
 
-    if len(X_train_np.shape) == 2:
-        X_train_tensor = torch.tensor(
-            X_train_np.reshape(-1, 1, X_train_np.shape[1]), dtype=torch.float32
-        )
-    else:
-        X_train_tensor = torch.tensor(X_train_np, dtype=torch.float32)
-    y_train_tensor = torch.tensor(y_train_np.reshape(-1, 1), dtype=torch.float32)
+    X_train_tensor = torch.tensor(X_train.values, dtype=torch.float32).to(device)
+    y_train_tensor = torch.tensor(
+        y_train.values.reshape(-1, 1), dtype=torch.float32
+    ).to(device)
 
-    input_size = X_train_tensor.shape[2]
+    dataset = TensorDataset(X_train_tensor, y_train_tensor)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    input_size = X_train.shape[1]
     model = LSTMModel(input_size=input_size).to(device)
 
-    dataset = TensorDataset(X_train_tensor.to(device), y_train_tensor.to(device))
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
@@ -73,22 +68,18 @@ class TransformerModel(nn.Module):
 
 def train_transformer(X_train, y_train, epochs=10, batch_size=32, lr=0.001):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    X_train_np = X_train.astype(float).values
-    y_train_np = y_train.astype(float).values
 
-    if len(X_train_np.shape) == 2:
-        X_train_tensor = torch.tensor(
-            X_train_np.reshape(-1, 1, X_train_np.shape[1]), dtype=torch.float32
-        )
-    else:
-        X_train_tensor = torch.tensor(X_train_np, dtype=torch.float32)
-    y_train_tensor = torch.tensor(y_train_np.reshape(-1, 1), dtype=torch.float32)
+    X_train_tensor = torch.tensor(X_train.values, dtype=torch.float32).to(device)
+    y_train_tensor = torch.tensor(
+        y_train.values.reshape(-1, 1), dtype=torch.float32
+    ).to(device)
 
-    input_size = X_train_tensor.shape[2]
+    dataset = TensorDataset(X_train_tensor, y_train_tensor)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    input_size = X_train.shape[1]
     model = TransformerModel(input_size=input_size).to(device)
 
-    dataset = TensorDataset(X_train_tensor.to(device), y_train_tensor.to(device))
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
