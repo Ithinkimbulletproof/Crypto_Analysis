@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
+from crypto_analysis.models import CryptoPrediction
 
 
 class StackingModel(nn.Module):
@@ -62,7 +63,8 @@ def train_stacking(models, X_train, y_train, epochs=100, lr=0.01):
     return stacking_model
 
 
-def predict_and_save(models, stacking_model, X, current_date, db_model):
+def predict_and_save(models, stacking_model, X, current_date, symbol):
+
     preds = []
     for name, model in models.items():
         if name in ["prophet", "arima"]:
@@ -106,7 +108,8 @@ def predict_and_save(models, stacking_model, X, current_date, db_model):
     )
     prediction_confidence = 0.9
 
-    prediction = db_model.objects.create(
+    prediction = CryptoPrediction.objects.create(
+        symbol=symbol,
         current_price=price_now,
         price_1h=price_1h,
         price_24h=price_24h,
@@ -116,5 +119,5 @@ def predict_and_save(models, stacking_model, X, current_date, db_model):
         confidence=prediction_confidence,
     )
     prediction.save()
-    print("Предсказания на 1 час и 24 часа сохранены в БД.")
+    print(f"Предсказания для {symbol} на 1ч и 24ч сохранены в БД.")
     return final_pred, prediction

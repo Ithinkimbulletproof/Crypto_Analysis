@@ -1,5 +1,12 @@
 from django.contrib import admin
-from .models import MarketData, NewsArticle, IndicatorData, SentimentData, KeyEntity
+from .models import (
+    MarketData,
+    NewsArticle,
+    IndicatorData,
+    SentimentData,
+    KeyEntity,
+    CryptoPrediction,
+)
 
 
 @admin.register(MarketData)
@@ -41,3 +48,19 @@ class KeyEntityAdmin(admin.ModelAdmin):
     list_display = ("article", "entity_type", "text", "count")
     list_filter = ("entity_type",)
     search_fields = ("text", "article__title")
+
+
+@admin.register(CryptoPrediction)
+class CryptoPredictionAdmin(admin.ModelAdmin):
+    list_display = (
+        "symbol",
+        "current_price",
+        "price_1h",
+        "price_24h",
+        "change_percent_1h",
+        "change_percent_24h",
+        "prediction_date",
+        "confidence",
+    )
+    list_filter = ("symbol", "prediction_date")
+    search_fields = ("symbol",)

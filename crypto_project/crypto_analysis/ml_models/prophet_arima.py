@@ -13,10 +13,10 @@ def train_prophet(series, horizon="24h"):
 
     if horizon == "24h":
         model = Prophet(
-            daily_seasonality=True,
-            weekly_seasonality=True,
+            daily_seasonality=False,
+            weekly_seasonality=False,
             yearly_seasonality=False,
-            n_changepoints=10,
+            n_changepoints=5,
             changepoint_range=0.8,
         )
     elif horizon == "1h":
@@ -30,20 +30,20 @@ def train_prophet(series, horizon="24h"):
         model.add_seasonality(name="daily", period=24, fourier_order=3)
     else:
         model = Prophet(
-            daily_seasonality=True,
-            weekly_seasonality=True,
+            daily_seasonality=False,
+            weekly_seasonality=False,
             yearly_seasonality=False,
-            n_changepoints=10,
+            n_changepoints=5,
             changepoint_range=0.8,
         )
 
-    model.fit(df)
+    model.fit(df, iter=200, n_jobs=2)
     print("✅ Prophet модель обучена для горизонта:", horizon)
     return model
 
 
 def train_arima(series, horizon="24h"):
     series = series.dropna()
-    model = pm.auto_arima(series, seasonal=True, m=7, trace=False)
+    model = pm.auto_arima(series, seasonal=True, m=7, trace=False, n_jobs=2)
     print("✅ ARIMA модель обучена.")
     return model

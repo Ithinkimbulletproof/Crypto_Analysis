@@ -95,3 +95,17 @@ class KeyEntity(models.Model):
             models.Index(fields=["entity_type"]),
             models.Index(fields=["text"]),
         ]
+
+
+class CryptoPrediction(models.Model):
+    symbol = models.CharField(max_length=20)
+    current_price = models.FloatField(null=True, blank=True)
+    price_1h = models.FloatField(null=True, blank=True)
+    price_24h = models.FloatField(null=True, blank=True)
+    change_percent_1h = models.FloatField(null=True, blank=True)
+    change_percent_24h = models.FloatField(null=True, blank=True)
+    prediction_date = models.DateTimeField(auto_now_add=True)
+    confidence = models.FloatField(default=0.9)
+
+    def __str__(self):
+        return f"{self.symbol} | {self.prediction_date}"
