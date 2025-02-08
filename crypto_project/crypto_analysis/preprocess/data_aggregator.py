@@ -52,7 +52,9 @@ def get_news_sentiment_df():
         df.rename(columns={"article__published_at": "date"}, inplace=True)
         df["news_hour"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.floor("h")
         df_sentiment = (
-            df.groupby("news_hour")[["vader_compound", "bert_positive", "combined_score"]]
+            df.groupby("news_hour")[
+                ["vader_compound", "bert_positive", "combined_score"]
+            ]
             .mean()
             .reset_index()
         )
@@ -72,8 +74,13 @@ def get_key_entities_df():
             .reset_index()
         )
         df_entities["entities"] = df_entities.apply(
-            lambda row: json.dumps({row["entity_type"][i]: row["text"][i]
-                                    for i in range(len(row["entity_type"]))}, ensure_ascii=False),
+            lambda row: json.dumps(
+                {
+                    row["entity_type"][i]: row["text"][i]
+                    for i in range(len(row["entity_type"]))
+                },
+                ensure_ascii=False,
+            ),
             axis=1,
         )
         df_entities = df_entities.drop(columns=["entity_type", "text"])
@@ -155,7 +162,9 @@ def preprocessing_data(df):
     df_std = df.copy()
 
     minmax_scaler = MinMaxScaler()
-    df_minmax[features_to_scale] = minmax_scaler.fit_transform(df_minmax[features_to_scale])
+    df_minmax[features_to_scale] = minmax_scaler.fit_transform(
+        df_minmax[features_to_scale]
+    )
 
     std_scaler = StandardScaler()
     df_std[features_to_scale] = std_scaler.fit_transform(df_std[features_to_scale])
@@ -194,9 +203,11 @@ def preprocessing_data(df):
 
 if __name__ == "__main__":
     df_unified = build_unified_dataframe()
-    df_unified.to_csv("unified_data.csv", index=False, na_rep='')
+    df_unified.to_csv("unified_data.csv", index=False, na_rep="")
 
     processed_data, features = preprocessing_data(df_unified)
 
-    processed_data["df_minmax"].to_csv("processed_data_minmax.csv", index=False, na_rep='')
-    processed_data["df_std"].to_csv("processed_data_std.csv", index=False, na_rep='')
+    processed_data["df_minmax"].to_csv(
+        "processed_data_minmax.csv", index=False, na_rep=""
+    )
+    processed_data["df_std"].to_csv("processed_data_std.csv", index=False, na_rep="")

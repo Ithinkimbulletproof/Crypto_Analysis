@@ -17,7 +17,7 @@ def train_prophet(series, horizon="24h"):
             weekly_seasonality=True,
             yearly_seasonality=False,
             n_changepoints=10,
-            changepoint_range=0.8
+            changepoint_range=0.8,
         )
     elif horizon == "1h":
         model = Prophet(
@@ -25,7 +25,7 @@ def train_prophet(series, horizon="24h"):
             weekly_seasonality=False,
             yearly_seasonality=False,
             n_changepoints=5,
-            changepoint_range=0.8
+            changepoint_range=0.8,
         )
         model.add_seasonality(name="daily", period=24, fourier_order=3)
     else:
@@ -34,7 +34,7 @@ def train_prophet(series, horizon="24h"):
             weekly_seasonality=True,
             yearly_seasonality=False,
             n_changepoints=10,
-            changepoint_range=0.8
+            changepoint_range=0.8,
         )
 
     model.fit(df)

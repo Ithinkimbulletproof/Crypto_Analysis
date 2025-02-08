@@ -9,7 +9,7 @@ import pandas as pd
 def create_sequences(X, y, seq_len):
     X_seq, y_seq = [], []
     for i in range(len(X) - seq_len):
-        X_seq.append(X.iloc[i: i + seq_len].values)
+        X_seq.append(X.iloc[i : i + seq_len].values)
         y_seq.append(y.iloc[i + seq_len])
     return np.array(X_seq), np.array(y_seq)
 
@@ -56,7 +56,9 @@ def train_lstm(X_train, y_train, seq_len=10, epochs=10, batch_size=32, lr=0.001)
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        print(f"LSTM Epoch {epoch + 1}/{epochs}, Loss: {total_loss / len(dataloader):.4f}")
+        print(
+            f"LSTM Epoch {epoch + 1}/{epochs}, Loss: {total_loss / len(dataloader):.4f}"
+        )
     return model
 
 
@@ -64,8 +66,12 @@ class TransformerModel(nn.Module):
     def __init__(self, input_size, d_model=64, num_layers=2, nhead=4):
         super(TransformerModel, self).__init__()
         self.encoder = nn.Linear(input_size, d_model)
-        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, batch_first=True)
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=nhead, batch_first=True
+        )
+        self.transformer_encoder = nn.TransformerEncoder(
+            encoder_layer, num_layers=num_layers
+        )
         self.fc = nn.Linear(d_model, 1)
 
     def forward(self, x):
@@ -106,5 +112,7 @@ def train_transformer(X_train, y_train, seq_len=10, epochs=10, batch_size=32, lr
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        print(f"Transformer Epoch {epoch + 1}/{epochs}, Loss: {total_loss / len(dataloader):.4f}")
+        print(
+            f"Transformer Epoch {epoch + 1}/{epochs}, Loss: {total_loss / len(dataloader):.4f}"
+        )
     return model
