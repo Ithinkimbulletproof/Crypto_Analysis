@@ -64,15 +64,14 @@ class TransformerModel(nn.Module):
     def __init__(self, input_size, d_model=64, num_layers=2, nhead=4):
         super(TransformerModel, self).__init__()
         self.encoder = nn.Linear(input_size, d_model)
-        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, batch_first=True)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.fc = nn.Linear(d_model, 1)
 
     def forward(self, x):
         x = self.encoder(x)
-        x = x.permute(1, 0, 2)
         x = self.transformer_encoder(x)
-        x = x[-1]
+        x = x[:, -1, :]
         x = self.fc(x)
         return x
 

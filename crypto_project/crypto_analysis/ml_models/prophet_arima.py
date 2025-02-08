@@ -11,11 +11,34 @@ def train_prophet(series, horizon="24h"):
     if (df["y"] > 0).all():
         df["y"] = np.log1p(df["y"])
 
-    model = Prophet(
-        daily_seasonality=True, weekly_seasonality=True, yearly_seasonality=True
-    )
+    if horizon == "24h":
+        model = Prophet(
+            daily_seasonality=True,
+            weekly_seasonality=True,
+            yearly_seasonality=False,
+            n_changepoints=10,
+            changepoint_range=0.8
+        )
+    elif horizon == "1h":
+        model = Prophet(
+            daily_seasonality=False,
+            weekly_seasonality=False,
+            yearly_seasonality=False,
+            n_changepoints=5,
+            changepoint_range=0.8
+        )
+        model.add_seasonality(name="daily", period=24, fourier_order=3)
+    else:
+        model = Prophet(
+            daily_seasonality=True,
+            weekly_seasonality=True,
+            yearly_seasonality=False,
+            n_changepoints=10,
+            changepoint_range=0.8
+        )
+
     model.fit(df)
-    print("✅ Prophet модель обучена.")
+    print("✅ Prophet модель обучена для горизонта:", horizon)
     return model
 
 

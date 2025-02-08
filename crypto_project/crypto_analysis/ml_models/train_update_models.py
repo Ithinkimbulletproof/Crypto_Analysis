@@ -34,7 +34,6 @@ def load_and_preprocess_data():
 def save_model_with_metadata(model, name, horizon, data):
     model_path = os.path.join(MODEL_DIR, f"{name}_{horizon}.pkl")
     joblib.dump(model, model_path)
-
     df_unified = data["unified_data.csv"]
     last_date = df_unified["date"].max()
     if pd.notnull(last_date):
@@ -42,7 +41,6 @@ def save_model_with_metadata(model, name, horizon, data):
             last_date = last_date.strftime("%Y-%m-%d %H:%M:%S")
     else:
         last_date = "unknown"
-
     metadata = {
         "model_name": f"{name}_{horizon}",
         "forecast_horizon": horizon,
@@ -66,7 +64,6 @@ def filter_by_interval(df, horizon):
 
 def train_and_save_models():
     data = load_and_preprocess_data()
-
     df_minmax = data["processed_data_minmax.csv"]
     df_std = data["processed_data_std.csv"]
     df_unified = data["unified_data.csv"]
@@ -91,6 +88,9 @@ def train_and_save_models():
     X_train_std_24h = df_std_24h.drop(columns=drop_cols_24h)
     y_train_std_24h = X_train_std_24h.pop("close_price_24h")
 
+    df_std_for_xgb_1h = df_std_1h.copy()
+    df_std_for_xgb_24h = df_std_24h.copy()
+
     print("Обучение моделей...")
 
     for (
@@ -100,6 +100,7 @@ def train_and_save_models():
         y_train_minmax,
         y_train_std,
         df_unified_filtered,
+        df_std_for_xgb
     ) in [
         (
             "1h",
@@ -108,6 +109,7 @@ def train_and_save_models():
             y_train_minmax_1h,
             y_train_std_1h,
             df_unified_1h,
+            df_std_for_xgb_1h
         ),
         (
             "24h",
@@ -116,13 +118,14 @@ def train_and_save_models():
             y_train_minmax_24h,
             y_train_std_24h,
             df_unified_24h,
+            df_std_for_xgb_24h
         ),
     ]:
         models = {
             "lstm": train_lstm(X_train_std, y_train_std),
             "transformer": train_transformer(X_train_std, y_train_std),
-            "xgboost": train_xgboost_and_lightgbm(X_train_std),
-            "lightgbm": train_xgboost_and_lightgbm(X_train_std),
+            "xgboost": train_xgboost_and_lightgbm(df_std_for_xgb),
+            "lightgbm": train_xgboost_and_lightgbm(df_std_for_xgb),
             "prophet": train_prophet(df_unified_filtered.set_index("date")["close_price"], horizon),
             "arima": train_arima(df_unified_filtered.set_index("date")["close_price"], horizon),
         }
