@@ -2,6 +2,16 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
+import numpy as np
+import pandas as pd
+
+
+def create_sequences(X, y, seq_len):
+    X_seq, y_seq = [], []
+    for i in range(len(X) - seq_len):
+        X_seq.append(X.iloc[i: i + seq_len].values)
+        y_seq.append(y.iloc[i + seq_len])
+    return np.array(X_seq), np.array(y_seq)
 
 
 class LSTMModel(nn.Module):
@@ -16,15 +26,18 @@ class LSTMModel(nn.Module):
         return out
 
 
-def train_lstm(X_train, y_train, epochs=10, batch_size=32, lr=0.001):
+def train_lstm(X_train, y_train, seq_len=10, epochs=10, batch_size=32, lr=0.001):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    X_train_tensor = torch.tensor(X_train.values, dtype=torch.float32).to(device)
-    y_train_tensor = torch.tensor(
-        y_train.values.reshape(-1, 1), dtype=torch.float32
-    ).to(device)
+    X_train = X_train.fillna(0)
+    y_train = y_train.fillna(0)
 
-    dataset = TensorDataset(X_train_tensor, y_train_tensor)
+    X_seq, y_seq = create_sequences(X_train, y_train, seq_len)
+
+    X_tensor = torch.tensor(X_seq, dtype=torch.float32).to(device)
+    y_tensor = torch.tensor(y_seq.reshape(-1, 1), dtype=torch.float32).to(device)
+
+    dataset = TensorDataset(X_tensor, y_tensor)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     input_size = X_train.shape[1]
@@ -43,7 +56,7 @@ def train_lstm(X_train, y_train, epochs=10, batch_size=32, lr=0.001):
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        print(f"LSTM Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(dataloader):.4f}")
+        print(f"LSTM Epoch {epoch + 1}/{epochs}, Loss: {total_loss / len(dataloader):.4f}")
     return model
 
 
@@ -52,9 +65,7 @@ class TransformerModel(nn.Module):
         super(TransformerModel, self).__init__()
         self.encoder = nn.Linear(input_size, d_model)
         encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead)
-        self.transformer_encoder = nn.TransformerEncoder(
-            encoder_layer, num_layers=num_layers
-        )
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.fc = nn.Linear(d_model, 1)
 
     def forward(self, x):
@@ -66,15 +77,18 @@ class TransformerModel(nn.Module):
         return x
 
 
-def train_transformer(X_train, y_train, epochs=10, batch_size=32, lr=0.001):
+def train_transformer(X_train, y_train, seq_len=10, epochs=10, batch_size=32, lr=0.001):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    X_train_tensor = torch.tensor(X_train.values, dtype=torch.float32).to(device)
-    y_train_tensor = torch.tensor(
-        y_train.values.reshape(-1, 1), dtype=torch.float32
-    ).to(device)
+    X_train = X_train.fillna(0)
+    y_train = y_train.fillna(0)
 
-    dataset = TensorDataset(X_train_tensor, y_train_tensor)
+    X_seq, y_seq = create_sequences(X_train, y_train, seq_len)
+
+    X_tensor = torch.tensor(X_seq, dtype=torch.float32).to(device)
+    y_tensor = torch.tensor(y_seq.reshape(-1, 1), dtype=torch.float32).to(device)
+
+    dataset = TensorDataset(X_tensor, y_tensor)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     input_size = X_train.shape[1]
@@ -93,7 +107,5 @@ def train_transformer(X_train, y_train, epochs=10, batch_size=32, lr=0.001):
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        print(
-            f"Transformer Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(dataloader):.4f}"
-        )
+        print(f"Transformer Epoch {epoch + 1}/{epochs}, Loss: {total_loss / len(dataloader):.4f}")
     return model
