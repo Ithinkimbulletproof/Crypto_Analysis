@@ -37,13 +37,26 @@ def train_prophet(series, horizon="24h"):
             changepoint_range=0.8,
         )
 
-    model.fit(df, iter=200, n_jobs=2)
+    model.fit(df, iter=200)
     print("✅ Prophet модель обучена для горизонта:", horizon)
     return model
 
 
 def train_arima(series, horizon="24h"):
     series = series.dropna()
-    model = pm.auto_arima(series, seasonal=True, m=7, trace=False, n_jobs=2)
+    if len(series) > 5000:
+        series = series.iloc[-5000:]
+    model = pm.auto_arima(
+        series,
+        seasonal=True,
+        m=7,
+        trace=False,
+        stepwise=True,
+        max_p=3,
+        max_q=3,
+        max_P=2,
+        max_Q=2,
+        max_order=10
+    )
     print("✅ ARIMA модель обучена.")
     return model

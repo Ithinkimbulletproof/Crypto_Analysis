@@ -2,22 +2,21 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
+import pandas as pd
 from crypto_analysis.models import CryptoPrediction
-
 
 class StackingModel(nn.Module):
     def __init__(self, input_size):
         super(StackingModel, self).__init__()
         self.fc1 = nn.Linear(input_size, 16)
         self.fc2 = nn.Linear(16, 8)
-        self.fc3 = nn.Linear(8, 1)
+        self.fc_out = nn.Linear(8, 2)
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
-        x = self.fc3(x)
+        x = self.fc_out(x)
         return x
-
 
 def train_stacking(models, X_train, y_train, epochs=100, lr=0.01):
     preds = []
@@ -31,25 +30,34 @@ def train_stacking(models, X_train, y_train, epochs=100, lr=0.01):
             else:
                 pred_1h = model.predict(n_periods=1)[0]
                 pred_24h = model.predict(n_periods=24)[-1]
-            pred_array = np.column_stack(
-                (np.full(len(X_train), pred_1h), np.full(len(X_train), pred_24h))
-            )
+            pred_array = np.column_stack((np.full(len(X_train), pred_1h),
+                                            np.full(len(X_train), pred_24h)))
+        elif isinstance(model, torch.nn.Module):
+            X_np = X_train.values if hasattr(X_train, "values") else X_train
+            X_tensor = torch.tensor(X_np, dtype=torch.float32)
+            model.eval()
+            with torch.no_grad():
+                pred_tensor = model(X_tensor)
+            pred_array = pred_tensor.numpy()
+            if pred_array.ndim == 1:
+                pred_array = pred_array.reshape(-1, 1)
+            if pred_array.shape[1] == 1:
+                pred_array = np.hstack([pred_array, pred_array])
         else:
             X_np = X_train.values if hasattr(X_train, "values") else X_train
             pred_array = model.predict(X_np)
             if pred_array.ndim == 1:
                 pred_array = pred_array.reshape(-1, 1)
+            if pred_array.shape[1] == 1:
+                pred_array = np.hstack([pred_array, pred_array])
         preds.append(pred_array)
-
     X_stack = np.hstack(preds)
     X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32)
-    y_tensor = torch.tensor(y_train.values.reshape(-1, 1), dtype=torch.float32)
-
+    y_tensor = torch.tensor(y_train.values, dtype=torch.float32)
     input_size = X_stack.shape[1]
     stacking_model = StackingModel(input_size=input_size)
     optimizer = optim.Adam(stacking_model.parameters(), lr=lr)
     criterion = nn.MSELoss()
-
     stacking_model.train()
     for epoch in range(epochs):
         optimizer.zero_grad()
@@ -59,12 +67,9 @@ def train_stacking(models, X_train, y_train, epochs=100, lr=0.01):
         optimizer.step()
         if (epoch + 1) % 10 == 0:
             print(f"Stacking Epoch {epoch+1}/{epochs}, Loss: {loss.item():.4f}")
-
     return stacking_model
 
-
 def predict_and_save(models, stacking_model, X, current_date, symbol):
-
     preds = []
     for name, model in models.items():
         if name in ["prophet", "arima"]:
@@ -76,40 +81,46 @@ def predict_and_save(models, stacking_model, X, current_date, symbol):
             else:
                 pred_1h = model.predict(n_periods=1)[0]
                 pred_24h = model.predict(n_periods=24)[-1]
-            pred_array = np.column_stack(
-                (np.full(len(X), pred_1h), np.full(len(X), pred_24h))
-            )
+            pred_array = np.column_stack((np.full(len(X), pred_1h),
+                                          np.full(len(X), pred_24h)))
+        elif isinstance(model, torch.nn.Module):
+            X_np = X.values if hasattr(X, "values") else X
+            X_tensor = torch.tensor(X_np, dtype=torch.float32)
+            model.eval()
+            with torch.no_grad():
+                pred_tensor = model(X_tensor)
+            pred_array = pred_tensor.numpy()
+            if pred_array.ndim == 1:
+                pred_array = pred_array.reshape(-1, 1)
+            if pred_array.shape[1] == 1:
+                pred_array = np.hstack([pred_array, pred_array])
         else:
             X_np = X.values if hasattr(X, "values") else X
             pred_array = model.predict(X_np)
             if pred_array.ndim == 1:
                 pred_array = pred_array.reshape(-1, 1)
+            if pred_array.shape[1] == 1:
+                pred_array = np.hstack([pred_array, pred_array])
         preds.append(pred_array)
-
     X_stack = np.hstack(preds)
     X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32)
-
     stacking_model.eval()
     with torch.no_grad():
-        final_pred = stacking_model(X_stack_tensor).numpy().flatten()
+        final_pred = stacking_model(X_stack_tensor).numpy()
 
     try:
         price_now = X["close_price"].iloc[-1]
     except KeyError:
         price_now = None
 
-    price_1h = final_pred[-24]
-    price_24h = final_pred[-1]
-    change_percent_1h = (
-        ((price_1h - price_now) / price_now * 100) if price_now else None
-    )
-    change_percent_24h = (
-        ((price_24h - price_now) / price_now * 100) if price_now else None
-    )
+    price_1h = final_pred[-1, 0]
+    price_24h = final_pred[-1, 1]
+    change_percent_1h = ((price_1h - price_now) / price_now * 100) if price_now else None
+    change_percent_24h = ((price_24h - price_now) / price_now * 100) if price_now else None
     prediction_confidence = 0.9
 
     prediction = CryptoPrediction.objects.create(
-        symbol=symbol,
+        symbol=symbol if isinstance(symbol, str) else ",".join(symbol),
         current_price=price_now,
         price_1h=price_1h,
         price_24h=price_24h,
@@ -119,5 +130,5 @@ def predict_and_save(models, stacking_model, X, current_date, symbol):
         confidence=prediction_confidence,
     )
     prediction.save()
-    print(f"Предсказания для {symbol} на 1ч и 24ч сохранены в БД.")
+    print(f"Предсказания для {symbol} на 1h и 24h сохранены в БД.")
     return final_pred, prediction
