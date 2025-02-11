@@ -14,22 +14,33 @@ if not os.path.exists(MODEL_DIR):
 
 DATA_DIR = "data_exports"
 
+
 def load_and_preprocess_data():
-    files = ["processed_data_minmax.csv", "processed_data_std.csv", "unified_data.csv"]
+    files = [
+        "processed_train_minmax.csv",
+        "processed_train_std.csv",
+        "unified_data.csv",
+    ]
     data = {}
     for file in files:
         file_path = os.path.join(DATA_DIR, file)
         if os.path.exists(file_path):
             if file == "unified_data.csv":
-                df = pd.read_csv(file_path, parse_dates=["date_x", "date_y"], low_memory=False)
-                df.rename(columns={"date_x": "date"}, inplace=True)
+                df = pd.read_csv(file_path, parse_dates=["date"], low_memory=False)
+                df.sort_values("date", inplace=True)
+                if "close_price" in df.columns and "close_price_24h" not in df.columns:
+                    df["close_price_1h"] = df["close_price"].shift(-4)
+                    df["close_price_24h"] = df["close_price"].shift(-96)
                 data[file] = df
             else:
-                data[file] = pd.read_csv(file_path, parse_dates=["date"], low_memory=False)
+                data[file] = pd.read_csv(
+                    file_path, parse_dates=["date"], low_memory=False
+                )
             print(f"✅ Загружен {file}")
         else:
             raise FileNotFoundError(f"❌ Файл {file_path} не найден.")
     return data
+
 
 def save_model_with_metadata(model, name, tag, data):
     model_path = os.path.join(MODEL_DIR, f"{name}_{tag}.pkl")
@@ -50,19 +61,24 @@ def save_model_with_metadata(model, name, tag, data):
     meta_path = os.path.join(MODEL_DIR, f"{name}_{tag}_meta.json")
     with open(meta_path, "w") as f:
         json.dump(metadata, f, indent=4)
-    print(f"Модель {name}_{tag} сохранена по пути: {model_path} с метаданными: {meta_path}")
+    print(
+        f"Модель {name}_{tag} сохранена по пути: {model_path} с метаданными: {meta_path}"
+    )
+
 
 def train_and_save_models():
     data = load_and_preprocess_data()
-    df_minmax = data["processed_data_minmax.csv"]
-    df_std = data["processed_data_std.csv"]
+    df_minmax = data["processed_train_minmax.csv"]
+    df_std = data["processed_train_std.csv"]
     df_unified = data["unified_data.csv"]
 
-    X_train = df_std.copy()
-    y_train = pd.DataFrame({
-        "close_price_1h": df_unified["close_price"],
-        "close_price_24h": df_unified["close_price_24h"]
-    })
+    X_train = df_std.select_dtypes(include=["number"]).copy()
+    y_train = pd.DataFrame(
+        {
+            "close_price_1h": df_unified["close_price_1h"],
+            "close_price_24h": df_unified["close_price_24h"],
+        }
+    )
 
     print("Обучение базовых моделей...")
     base_models = {
@@ -70,21 +86,29 @@ def train_and_save_models():
         "transformer": train_transformer(X_train, df_unified["close_price"]),
         "xgboost": train_xgboost_and_lightgbm(X_train),
         "lightgbm": train_xgboost_and_lightgbm(X_train),
-        "prophet": train_prophet(df_unified.set_index("date")["close_price"], "unified"),
-        "arima": train_arima(df_unified.set_index("date")["close_price"], "unified")
+        "prophet": train_prophet(
+            df_unified.set_index("date")["close_price"], "unified"
+        ),
+        "arima": train_arima(df_unified.set_index("date")["close_price"], "unified"),
     }
     for name, model in base_models.items():
-        save_model_with_metadata(model, name, "unified", {"unified_data.csv": df_unified})
+        save_model_with_metadata(
+            model, name, "unified", {"unified_data.csv": df_unified}
+        )
 
     print("Обучение стэкинговой модели с 2 выходами...")
     stacking_model = train_stacking(base_models, X_train, y_train, epochs=100, lr=0.01)
-    save_model_with_metadata(stacking_model, "stacking", "unified", {"unified_data.csv": df_unified})
+    save_model_with_metadata(
+        stacking_model, "stacking", "unified", {"unified_data.csv": df_unified}
+    )
     print("Все модели обучены и сохранены.")
+
 
 def main():
     print("Начинаю обновление моделей...")
     train_and_save_models()
     print("Обновление завершено.")
+
 
 if __name__ == "__main__":
     main()

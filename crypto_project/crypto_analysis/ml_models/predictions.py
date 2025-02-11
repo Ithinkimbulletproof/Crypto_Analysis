@@ -23,7 +23,7 @@ models = {
     "xgboost": xgboost_model,
     "lightgbm": lightgbm_model,
     "prophet": prophet_model,
-    "arima": arima_model
+    "arima": arima_model,
 }
 
 X_actual = pd.read_csv("unified_data.csv")
@@ -41,7 +41,9 @@ X_inference = X_inference[X_inference["date"].dt.minute == 0]
 current_date = datetime.now()
 symbols = os.getenv("CRYPTOPAIRS").split(",")
 
-final_pred, prediction = predict_and_save(models, stacking_model, X_inference, current_date, symbols)
+final_pred, prediction = predict_and_save(
+    models, stacking_model, X_inference, current_date, symbols
+)
 price_1h = final_pred[-1, 0]
 price_24h = final_pred[-1, 1]
 print(f"Для {symbols} предсказание: на 1h = {price_1h}, на 24h = {price_24h}")

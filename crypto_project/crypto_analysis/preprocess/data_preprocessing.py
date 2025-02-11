@@ -37,23 +37,28 @@ def preprocess_data():
     calc_start_date = make_aware(datetime.now() - timedelta(days=1900))
 
     grouped = df.groupby("cryptocurrency")
-
-    existing_keys = set(
-        IndicatorData.objects.filter(date__gte=start_date).values_list(
-            "cryptocurrency", "date", "indicator_name"
-        )
-    )
-
     new_entries = []
+
     for crypto, data in grouped:
         logger.info(f"Обрабатываем {crypto}: всего записей = {len(data)}")
-        data_calc = data[data["date"] >= calc_start_date]
-        logger.info(
-            f"Для {crypto} используется {len(data_calc)} записей за последние 1900 дней для расчёта."
+        last_indicator = (
+            IndicatorData.objects.filter(cryptocurrency=crypto)
+            .order_by("-date")
+            .first()
         )
+        if last_indicator:
+            last_date = last_indicator.date
+            logger.info(f"Для {crypto} индикаторы уже рассчитаны до {last_date}.")
+            data_calc = data[data["date"] > last_date]
+        else:
+            logger.info(
+                f"Для {crypto} индикаторы ещё не вычислялись, используем данные с {calc_start_date}."
+            )
+            data_calc = data[data["date"] >= calc_start_date]
 
+        logger.info(f"Для {crypto} используется {len(data_calc)} записей для расчёта.")
         if data_calc.empty:
-            logger.info(f"Для {crypto} нет записей за последние 1900 дней. Пропускаем.")
+            logger.info(f"Для {crypto} нет новых записей для расчёта. Пропускаем.")
             continue
 
         indicators = calculate_indicators(data_calc)
@@ -63,8 +68,9 @@ def preprocess_data():
         )
 
         for _, row in indicators.iterrows():
-            key = (crypto, row["date"], row["indicator"])
-            if key not in existing_keys:
+            if not IndicatorData.objects.filter(
+                cryptocurrency=crypto, date=row["date"], indicator_name=row["indicator"]
+            ).exists():
                 new_entries.append(
                     IndicatorData(
                         cryptocurrency=crypto,

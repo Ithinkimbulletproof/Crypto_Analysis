@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from crypto_analysis.models import CryptoPrediction
 
+
 class StackingModel(nn.Module):
     def __init__(self, input_size):
         super(StackingModel, self).__init__()
@@ -18,6 +19,7 @@ class StackingModel(nn.Module):
         x = self.fc_out(x)
         return x
 
+
 def train_stacking(models, X_train, y_train, epochs=100, lr=0.01):
     preds = []
     for name, model in models.items():
@@ -30,8 +32,9 @@ def train_stacking(models, X_train, y_train, epochs=100, lr=0.01):
             else:
                 pred_1h = model.predict(n_periods=1)[0]
                 pred_24h = model.predict(n_periods=24)[-1]
-            pred_array = np.column_stack((np.full(len(X_train), pred_1h),
-                                            np.full(len(X_train), pred_24h)))
+            pred_array = np.column_stack(
+                (np.full(len(X_train), pred_1h), np.full(len(X_train), pred_24h))
+            )
         elif isinstance(model, torch.nn.Module):
             X_np = X_train.values if hasattr(X_train, "values") else X_train
             X_tensor = torch.tensor(X_np, dtype=torch.float32)
@@ -69,6 +72,7 @@ def train_stacking(models, X_train, y_train, epochs=100, lr=0.01):
             print(f"Stacking Epoch {epoch+1}/{epochs}, Loss: {loss.item():.4f}")
     return stacking_model
 
+
 def predict_and_save(models, stacking_model, X, current_date, symbol):
     preds = []
     for name, model in models.items():
@@ -81,8 +85,9 @@ def predict_and_save(models, stacking_model, X, current_date, symbol):
             else:
                 pred_1h = model.predict(n_periods=1)[0]
                 pred_24h = model.predict(n_periods=24)[-1]
-            pred_array = np.column_stack((np.full(len(X), pred_1h),
-                                          np.full(len(X), pred_24h)))
+            pred_array = np.column_stack(
+                (np.full(len(X), pred_1h), np.full(len(X), pred_24h))
+            )
         elif isinstance(model, torch.nn.Module):
             X_np = X.values if hasattr(X, "values") else X
             X_tensor = torch.tensor(X_np, dtype=torch.float32)
@@ -115,8 +120,12 @@ def predict_and_save(models, stacking_model, X, current_date, symbol):
 
     price_1h = final_pred[-1, 0]
     price_24h = final_pred[-1, 1]
-    change_percent_1h = ((price_1h - price_now) / price_now * 100) if price_now else None
-    change_percent_24h = ((price_24h - price_now) / price_now * 100) if price_now else None
+    change_percent_1h = (
+        ((price_1h - price_now) / price_now * 100) if price_now else None
+    )
+    change_percent_24h = (
+        ((price_24h - price_now) / price_now * 100) if price_now else None
+    )
     prediction_confidence = 0.9
 
     prediction = CryptoPrediction.objects.create(

@@ -11,7 +11,7 @@ def create_sequences(X, y, seq_len):
     for i in range(len(X) - seq_len):
         X_seq.append(X.iloc[i : i + seq_len].values)
         y_seq.append(y.iloc[i + seq_len])
-    return np.array(X_seq), np.array(y_seq)
+    return np.array(X_seq, dtype=np.float32), np.array(y_seq, dtype=np.float32)
 
 
 class LSTMModel(nn.Module):

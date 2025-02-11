@@ -18,9 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = (
-        "Получает данные с бирж, сохраняет их в базе данных и рассчитывает индикаторы"
-    )
+    help = "Получает данные с бирж, рассчитывает индикаторы, анализирует новости и объединяет данные"
 
     def handle(self, *args, **kwargs):
         asyncio.run(self.async_handle(*args, **kwargs))
@@ -78,11 +76,18 @@ class Command(BaseCommand):
             os.makedirs(save_path, exist_ok=True)
 
             df_unified.to_csv(os.path.join(save_path, "unified_data.csv"), index=False)
-            processed_data["df_minmax"].to_csv(
-                os.path.join(save_path, "processed_data_minmax.csv"), index=False
+
+            processed_data["df_train_minmax"].to_csv(
+                os.path.join(save_path, "processed_train_minmax.csv"), index=False
             )
-            processed_data["df_std"].to_csv(
-                os.path.join(save_path, "processed_data_std.csv"), index=False
+            processed_data["df_test_minmax"].to_csv(
+                os.path.join(save_path, "processed_test_minmax.csv"), index=False
+            )
+            processed_data["df_train_std"].to_csv(
+                os.path.join(save_path, "processed_train_std.csv"), index=False
+            )
+            processed_data["df_test_std"].to_csv(
+                os.path.join(save_path, "processed_test_std.csv"), index=False
             )
 
             self.stdout.write(

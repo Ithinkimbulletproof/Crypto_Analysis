@@ -56,7 +56,7 @@ def train_arima(series, horizon="24h"):
         max_q=3,
         max_P=2,
         max_Q=2,
-        max_order=10
+        max_order=10,
     )
     print("✅ ARIMA модель обучена.")
     return model

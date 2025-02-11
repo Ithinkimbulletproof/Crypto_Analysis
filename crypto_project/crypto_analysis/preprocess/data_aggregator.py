@@ -51,14 +51,13 @@ def get_news_sentiment_df():
     if not df.empty:
         df.rename(columns={"article__published_at": "date"}, inplace=True)
         df["news_hour"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.floor("h")
-        df_sentiment = (
+        df = (
             df.groupby("news_hour")[
                 ["vader_compound", "bert_positive", "combined_score"]
             ]
             .mean()
             .reset_index()
         )
-        df = df_sentiment
     return df
 
 
@@ -69,7 +68,7 @@ def get_key_entities_df():
         df.rename(columns={"article__published_at": "date"}, inplace=True)
         df["news_hour"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.floor("h")
         df_entities = (
-            df.groupby(["date", "news_hour"])
+            df.groupby("news_hour")
             .agg({"entity_type": lambda x: list(x), "text": lambda x: list(x)})
             .reset_index()
         )
@@ -84,7 +83,8 @@ def get_key_entities_df():
             axis=1,
         )
         df_entities = df_entities.drop(columns=["entity_type", "text"])
-    return df_entities
+        return df_entities
+    return pd.DataFrame()
 
 
 def build_unified_dataframe():
@@ -138,6 +138,7 @@ def preprocessing_data(df):
             raise KeyError("Не найдена колонка 'date' в DataFrame.")
 
     df = df.sort_values("date").reset_index(drop=True)
+
     price_cols = ["open_price", "high_price", "low_price", "close_price"]
     df = remove_outliers_iqr(df, price_cols)
 
@@ -147,67 +148,85 @@ def preprocessing_data(df):
 
     additional_numeric = df.select_dtypes(include=[np.number]).columns.tolist()
     for col in additional_numeric:
-        if col not in numeric_cols and col not in ["close_price_24h"]:
+        if col not in numeric_cols and col not in ["close_price_1h", "close_price_24h"]:
             numeric_cols.append(col)
 
     df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].median())
-    df["close_price_24h"] = df["close_price"].shift(-24)
-    df = df.dropna(subset=["close_price_24h"]).reset_index(drop=True)
+
+    df["close_price_1h"] = df["close_price"].shift(-4)
+    df["close_price_24h"] = df["close_price"].shift(-96)
+    df = df.dropna(subset=["close_price_1h", "close_price_24h"]).reset_index(drop=True)
+
+    split_idx = int(len(df) * 0.8)
+    df_train = df.iloc[:split_idx].copy().reset_index(drop=True)
+    df_test = df.iloc[split_idx:].copy().reset_index(drop=True)
 
     features_to_scale = numeric_cols.copy()
+    if "close_price_1h" in features_to_scale:
+        features_to_scale.remove("close_price_1h")
     if "close_price_24h" in features_to_scale:
         features_to_scale.remove("close_price_24h")
 
-    df_minmax = df.copy()
-    df_std = df.copy()
-
     minmax_scaler = MinMaxScaler()
-    df_minmax[features_to_scale] = minmax_scaler.fit_transform(
-        df_minmax[features_to_scale]
-    )
+    X_train_minmax = minmax_scaler.fit_transform(df_train[features_to_scale])
+    X_test_minmax = minmax_scaler.transform(df_test[features_to_scale])
+    y_train_minmax = df_train[["close_price_1h", "close_price_24h"]]
+    y_test_minmax = df_test[["close_price_1h", "close_price_24h"]]
 
     std_scaler = StandardScaler()
-    df_std[features_to_scale] = std_scaler.fit_transform(df_std[features_to_scale])
+    X_train_std = std_scaler.fit_transform(df_train[features_to_scale])
+    X_test_std = std_scaler.transform(df_test[features_to_scale])
+    y_train_std = df_train[["close_price_1h", "close_price_24h"]]
+    y_test_std = df_test[["close_price_1h", "close_price_24h"]]
 
-    split_idx = int(len(df_minmax) * 0.8)
-
-    X_minmax = df_minmax[features_to_scale]
-    y_minmax = df_minmax["close_price_24h"]
-    X_train_minmax = X_minmax.iloc[:split_idx]
-    X_test_minmax = X_minmax.iloc[split_idx:]
-    y_train_minmax = y_minmax.iloc[:split_idx]
-    y_test_minmax = y_minmax.iloc[split_idx:]
-
-    X_std = df_std[features_to_scale]
-    y_std = df_std["close_price_24h"]
-    X_train_std = X_std.iloc[:split_idx]
-    X_test_std = X_std.iloc[split_idx:]
-    y_train_std = y_std.iloc[:split_idx]
-    y_test_std = y_std.iloc[split_idx:]
+    df_minmax_full = df.copy()
+    df_minmax_full[features_to_scale] = minmax_scaler.transform(
+        df_minmax_full[features_to_scale]
+    )
+    df_std_full = df.copy()
+    df_std_full[features_to_scale] = std_scaler.transform(
+        df_std_full[features_to_scale]
+    )
 
     processed_data = {
         "df_original": df,
-        "df_minmax": df_minmax,
-        "df_std": df_std,
-        "X_train_minmax": X_train_minmax,
-        "X_test_minmax": X_test_minmax,
+        "df_train_minmax": pd.concat(
+            [
+                df_train.reset_index(drop=True),
+                pd.DataFrame(X_train_minmax, columns=features_to_scale),
+            ],
+            axis=1,
+        ),
+        "df_test_minmax": pd.concat(
+            [
+                df_test.reset_index(drop=True),
+                pd.DataFrame(X_test_minmax, columns=features_to_scale),
+            ],
+            axis=1,
+        ),
+        "X_train_minmax": pd.DataFrame(X_train_minmax, columns=features_to_scale),
+        "X_test_minmax": pd.DataFrame(X_test_minmax, columns=features_to_scale),
         "y_train_minmax": y_train_minmax,
         "y_test_minmax": y_test_minmax,
-        "X_train_std": X_train_std,
-        "X_test_std": X_test_std,
+        "df_train_std": pd.concat(
+            [
+                df_train.reset_index(drop=True),
+                pd.DataFrame(X_train_std, columns=features_to_scale),
+            ],
+            axis=1,
+        ),
+        "df_test_std": pd.concat(
+            [
+                df_test.reset_index(drop=True),
+                pd.DataFrame(X_test_std, columns=features_to_scale),
+            ],
+            axis=1,
+        ),
+        "X_train_std": pd.DataFrame(X_train_std, columns=features_to_scale),
+        "X_test_std": pd.DataFrame(X_test_std, columns=features_to_scale),
         "y_train_std": y_train_std,
         "y_test_std": y_test_std,
+        "df_minmax": df_minmax_full,
+        "df_std": df_std_full,
     }
     return processed_data, features_to_scale
-
-
-if __name__ == "__main__":
-    df_unified = build_unified_dataframe()
-    df_unified.to_csv("unified_data.csv", index=False, na_rep="")
-
-    processed_data, features = preprocessing_data(df_unified)
-
-    processed_data["df_minmax"].to_csv(
-        "processed_data_minmax.csv", index=False, na_rep=""
-    )
-    processed_data["df_std"].to_csv("processed_data_std.csv", index=False, na_rep="")
