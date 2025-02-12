@@ -139,5 +139,5 @@ def predict_and_save(models, stacking_model, X, current_date, symbol):
         confidence=prediction_confidence,
     )
     prediction.save()
-    print(f"Предсказания для {symbol} на 1h и 24h сохранены в БД.")
+    print(f"✅ Предсказания для {symbol} на 1h и 24h сохранены в БД.")
     return final_pred, prediction

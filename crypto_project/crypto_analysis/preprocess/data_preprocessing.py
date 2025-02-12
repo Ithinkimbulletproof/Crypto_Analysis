@@ -35,7 +35,6 @@ def preprocess_data():
     logger.info(f"Загружено {len(df)} записей из MarketData.")
 
     calc_start_date = make_aware(datetime.now() - timedelta(days=1900))
-
     grouped = df.groupby("cryptocurrency")
     new_entries = []
 
@@ -67,10 +66,15 @@ def preprocess_data():
             f"Для {crypto} получено {len(indicators)} валидных записей индикаторов."
         )
 
+        existing_keys = set(
+            IndicatorData.objects.filter(
+                cryptocurrency=crypto, date__in=data_calc["date"].unique()
+            ).values_list("date", "indicator_name")
+        )
+
         for _, row in indicators.iterrows():
-            if not IndicatorData.objects.filter(
-                cryptocurrency=crypto, date=row["date"], indicator_name=row["indicator"]
-            ).exists():
+            key = (row["date"], row["indicator"])
+            if key not in existing_keys:
                 new_entries.append(
                     IndicatorData(
                         cryptocurrency=crypto,

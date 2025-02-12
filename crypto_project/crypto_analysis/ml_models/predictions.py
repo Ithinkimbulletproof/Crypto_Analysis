@@ -46,4 +46,4 @@ final_pred, prediction = predict_and_save(
 )
 price_1h = final_pred[-1, 0]
 price_24h = final_pred[-1, 1]
-print(f"Для {symbols} предсказание: на 1h = {price_1h}, на 24h = {price_24h}")
+print(f"✅ Для {symbols} предсказание: на 1h = {price_1h}, на 24h = {price_24h}")
