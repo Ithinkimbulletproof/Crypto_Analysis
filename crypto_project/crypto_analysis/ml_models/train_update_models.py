@@ -21,6 +21,16 @@ if not os.path.exists(MODEL_DIR):
 DATA_DIR = "data_exports"
 
 
+def save_best_params(params, filename):
+    with open(filename, "w") as f:
+        json.dump(params, f, indent=4)
+
+
+def load_best_params(filename):
+    with open(filename, "r") as f:
+        return json.load(f)
+
+
 def load_and_preprocess_data():
     files = [
         "processed_train_minmax.csv",
@@ -91,11 +101,16 @@ def train_and_save_models():
 
     df_train_std.columns = df_train_std.columns.str.replace(" ", "_")
 
+    if "cryptocurrency" in df_train_std.columns:
+        df_train_std = pd.get_dummies(
+            df_train_std, columns=["cryptocurrency"], drop_first=True
+        )
+        print("✅ Столбец 'cryptocurrency' преобразован с помощью pd.get_dummies")
+
     X_train = df_train_std.select_dtypes(include=["number"]).copy()
     y_train = df_train_std[["close_price_1h", "close_price_24h"]]
     X_train = select_features(X_train, y_train)
 
-    print("Начинаю гиперпараметрическую оптимизацию для XGBoost (1h)...")
     param_grid_xgb = {
         "n_estimators": [50, 100, 200],
         "max_depth": [3, 5, 7],
@@ -104,22 +119,33 @@ def train_and_save_models():
     }
     tscv = TimeSeriesSplit(n_splits=5)
     xgb_model = xgb.XGBRegressor(objective="reg:squarederror")
-    grid_search_xgb = GridSearchCV(
-        xgb_model, param_grid_xgb, cv=tscv, scoring="neg_mean_squared_error"
-    )
-    grid_search_xgb.fit(X_train, y_train["close_price_1h"])
-    best_params_xgb_1h = grid_search_xgb.best_params_
-    print("✅ Лучшие параметры для XGBoost (1h):", best_params_xgb_1h)
 
-    print("Начинаю гиперпараметрическую оптимизацию для XGBoost (24h)...")
-    grid_search_xgb_24h = GridSearchCV(
-        xgb_model, param_grid_xgb, cv=tscv, scoring="neg_mean_squared_error"
-    )
-    grid_search_xgb_24h.fit(X_train, y_train["close_price_24h"])
-    best_params_xgb_24h = grid_search_xgb_24h.best_params_
-    print("✅ Лучшие параметры для XGBoost (24h):", best_params_xgb_24h)
+    params_file_xgb_1h = os.path.join(MODEL_DIR, "best_params_xgb_1h.json")
+    if os.path.exists(params_file_xgb_1h):
+        best_params_xgb_1h = load_best_params(params_file_xgb_1h)
+        print("✅ Загружены оптимальные параметры для XGBoost (1h)")
+    else:
+        grid_search_xgb = GridSearchCV(
+            xgb_model, param_grid_xgb, cv=tscv, scoring="neg_mean_squared_error"
+        )
+        grid_search_xgb.fit(X_train, y_train["close_price_1h"])
+        best_params_xgb_1h = grid_search_xgb.best_params_
+        save_best_params(best_params_xgb_1h, params_file_xgb_1h)
+        print("✅ Оптимизация XGBoost (1h) завершена и параметры сохранены")
 
-    print("Начинаю гиперпараметрическую оптимизацию для LightGBM (1h)...")
+    params_file_xgb_24h = os.path.join(MODEL_DIR, "best_params_xgb_24h.json")
+    if os.path.exists(params_file_xgb_24h):
+        best_params_xgb_24h = load_best_params(params_file_xgb_24h)
+        print("✅ Загружены оптимальные параметры для XGBoost (24h)")
+    else:
+        grid_search_xgb_24h = GridSearchCV(
+            xgb_model, param_grid_xgb, cv=tscv, scoring="neg_mean_squared_error"
+        )
+        grid_search_xgb_24h.fit(X_train, y_train["close_price_24h"])
+        best_params_xgb_24h = grid_search_xgb_24h.best_params_
+        save_best_params(best_params_xgb_24h, params_file_xgb_24h)
+        print("✅ Оптимизация XGBoost (24h) завершена и параметры сохранены")
+
     param_grid_lgb = {
         "n_estimators": [50, 100, 200],
         "max_depth": [5, 10, 15],
@@ -130,20 +156,32 @@ def train_and_save_models():
     lgb_model = lgb.LGBMRegressor(
         objective="regression", force_col_wise=True, verbose=-1
     )
-    grid_search_lgb = GridSearchCV(
-        lgb_model, param_grid_lgb, cv=tscv, scoring="neg_mean_squared_error"
-    )
-    grid_search_lgb.fit(X_train, y_train["close_price_1h"])
-    best_params_lgb_1h = grid_search_lgb.best_params_
-    print("✅ Лучшие параметры для LightGBM (1h):", best_params_lgb_1h)
 
-    print("Начинаю гиперпараметрическую оптимизацию для LightGBM (24h)...")
-    grid_search_lgb_24h = GridSearchCV(
-        lgb_model, param_grid_lgb, cv=tscv, scoring="neg_mean_squared_error"
-    )
-    grid_search_lgb_24h.fit(X_train, y_train["close_price_24h"])
-    best_params_lgb_24h = grid_search_lgb_24h.best_params_
-    print("✅ Лучшие параметры для LightGBM (24h):", best_params_lgb_24h)
+    params_file_lgb_1h = os.path.join(MODEL_DIR, "best_params_lgb_1h.json")
+    if os.path.exists(params_file_lgb_1h):
+        best_params_lgb_1h = load_best_params(params_file_lgb_1h)
+        print("✅ Загружены оптимальные параметры для LightGBM (1h)")
+    else:
+        grid_search_lgb = GridSearchCV(
+            lgb_model, param_grid_lgb, cv=tscv, scoring="neg_mean_squared_error"
+        )
+        grid_search_lgb.fit(X_train, y_train["close_price_1h"])
+        best_params_lgb_1h = grid_search_lgb.best_params_
+        save_best_params(best_params_lgb_1h, params_file_lgb_1h)
+        print("✅ Оптимизация LightGBM (1h) завершена и параметры сохранены")
+
+    params_file_lgb_24h = os.path.join(MODEL_DIR, "best_params_lgb_24h.json")
+    if os.path.exists(params_file_lgb_24h):
+        best_params_lgb_24h = load_best_params(params_file_lgb_24h)
+        print("✅ Загружены оптимальные параметры для LightGBM (24h)")
+    else:
+        grid_search_lgb_24h = GridSearchCV(
+            lgb_model, param_grid_lgb, cv=tscv, scoring="neg_mean_squared_error"
+        )
+        grid_search_lgb_24h.fit(X_train, y_train["close_price_24h"])
+        best_params_lgb_24h = grid_search_lgb_24h.best_params_
+        save_best_params(best_params_lgb_24h, params_file_lgb_24h)
+        print("✅ Оптимизация LightGBM (24h) завершена и параметры сохранены")
 
     print("Обучение LSTM для 1h и 24h:")
     lstm_models = train_lstm_dual(

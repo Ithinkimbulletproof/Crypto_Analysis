@@ -11,7 +11,7 @@ class StackingModel(nn.Module):
         super(StackingModel, self).__init__()
         self.fc1 = nn.Linear(input_size, 16)
         self.fc2 = nn.Linear(16, 8)
-        self.fc_out = nn.Linear(8, 2)  # 2 выхода: 1h и 24h
+        self.fc_out = nn.Linear(8, 2)
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))

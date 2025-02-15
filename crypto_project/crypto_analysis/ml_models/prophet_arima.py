@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 
 
-def train_prophet(series, horizon="24h"):
+def train_prophet(series, horizon="24h", forecast_tag=None):
     df = series.reset_index()
     df.columns = ["ds", "y"]
 
@@ -40,11 +40,16 @@ def train_prophet(series, horizon="24h"):
         model.add_seasonality(name="daily", period=1, fourier_order=8)
 
     model.fit(df, iter=200)
-    print("✅ Prophet модель обучена для горизонта:", horizon)
+    print(
+        "✅ Prophet модель обучена для горизонта:",
+        horizon,
+        "forecast_tag:",
+        forecast_tag,
+    )
     return model
 
 
-def train_arima(series, horizon="24h"):
+def train_arima(series, horizon="24h", forecast_tag=None):
     series = series.dropna()
     if len(series) > 5000:
         series = series.iloc[-5000:]
@@ -67,5 +72,7 @@ def train_arima(series, horizon="24h"):
         max_Q=2,
         max_order=10,
     )
-    print("✅ ARIMA модель обучена для горизонта:", horizon)
+    print(
+        "✅ ARIMA модель обучена для горизонта:", horizon, "forecast_tag:", forecast_tag
+    )
     return model
