@@ -11,7 +11,7 @@ class StackingModel(nn.Module):
         super(StackingModel, self).__init__()
         self.fc1 = nn.Linear(input_size, 16)
         self.fc2 = nn.Linear(16, 8)
-        self.fc_out = nn.Linear(8, 2)
+        self.fc_out = nn.Linear(8, 2)  # 2 выхода: 1h и 24h
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
@@ -20,47 +20,84 @@ class StackingModel(nn.Module):
         return x
 
 
-def train_stacking(models, X_train, y_train, epochs=100, lr=0.01):
-    preds = []
-    for name, model in models.items():
-        if name in ["prophet", "arima"]:
-            if name == "prophet":
-                future = model.make_future_dataframe(periods=24, freq="H")
-                forecast = model.predict(future)
-                pred_1h = forecast["yhat"].iloc[-24]
-                pred_24h = forecast["yhat"].iloc[-1]
-            else:
-                pred_1h = model.predict(n_periods=1)[0]
-                pred_24h = model.predict(n_periods=24)[-1]
-            pred_array = np.column_stack(
-                (np.full(len(X_train), pred_1h), np.full(len(X_train), pred_24h))
-            )
-        elif isinstance(model, torch.nn.Module):
-            X_np = X_train.values if hasattr(X_train, "values") else X_train
+def get_model_predictions(model, name, X):
+    if name.endswith("_1h"):
+        if isinstance(model, torch.nn.Module):
+            X_np = X.values if hasattr(X, "values") else X
             X_tensor = torch.tensor(X_np, dtype=torch.float32)
             model.eval()
             with torch.no_grad():
                 pred_tensor = model(X_tensor)
             pred_array = pred_tensor.numpy()
-            if pred_array.ndim == 1:
-                pred_array = pred_array.reshape(-1, 1)
-            if pred_array.shape[1] == 1:
-                pred_array = np.hstack([pred_array, pred_array])
         else:
-            X_np = X_train.values if hasattr(X_train, "values") else X_train
+            X_np = X.values if hasattr(X, "values") else X
             pred_array = model.predict(X_np)
-            if pred_array.ndim == 1:
-                pred_array = pred_array.reshape(-1, 1)
-            if pred_array.shape[1] == 1:
-                pred_array = np.hstack([pred_array, pred_array])
-        preds.append(pred_array)
+        if pred_array.ndim == 1:
+            pred_array = pred_array.reshape(-1, 1)
+        pred_array = np.hstack([pred_array, np.zeros_like(pred_array)])
+        return pred_array
+
+    elif name.endswith("_24h"):
+        if isinstance(model, torch.nn.Module):
+            X_np = X.values if hasattr(X, "values") else X
+            X_tensor = torch.tensor(X_np, dtype=torch.float32)
+            model.eval()
+            with torch.no_grad():
+                pred_tensor = model(X_tensor)
+            pred_array = pred_tensor.numpy()
+        else:
+            X_np = X.values if hasattr(X, "values") else X
+            pred_array = model.predict(X_np)
+        if pred_array.ndim == 1:
+            pred_array = pred_array.reshape(-1, 1)
+        pred_array = np.hstack([np.zeros_like(pred_array), pred_array])
+        return pred_array
+
+    elif name in ["prophet", "arima"]:
+        if name == "prophet":
+            future = model.make_future_dataframe(periods=24, freq="H")
+            forecast = model.predict(future)
+            pred_1h = forecast["yhat"].iloc[-24]
+            pred_24h = forecast["yhat"].iloc[-1]
+        else:
+            pred_1h = model.predict(n_periods=1)[0]
+            pred_24h = model.predict(n_periods=24)[-1]
+        pred_array = np.column_stack(
+            (np.full(len(X), pred_1h), np.full(len(X), pred_24h))
+        )
+        return pred_array
+
+    else:
+        if isinstance(model, torch.nn.Module):
+            X_np = X.values if hasattr(X, "values") else X
+            X_tensor = torch.tensor(X_np, dtype=torch.float32)
+            model.eval()
+            with torch.no_grad():
+                pred_tensor = model(X_tensor)
+            pred_array = pred_tensor.numpy()
+        else:
+            X_np = X.values if hasattr(X, "values") else X
+            pred_array = model.predict(X_np)
+        if pred_array.ndim == 1:
+            pred_array = pred_array.reshape(-1, 1)
+        if pred_array.shape[1] == 1:
+            pred_array = np.hstack([pred_array, pred_array])
+        return pred_array
+
+
+def train_stacking(models, X_train, y_train, epochs=100, lr=0.01):
+    preds = [
+        get_model_predictions(model, name, X_train) for name, model in models.items()
+    ]
     X_stack = np.hstack(preds)
     X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32)
     y_tensor = torch.tensor(y_train.values, dtype=torch.float32)
     input_size = X_stack.shape[1]
+
     stacking_model = StackingModel(input_size=input_size)
     optimizer = optim.Adam(stacking_model.parameters(), lr=lr)
     criterion = nn.MSELoss()
+
     stacking_model.train()
     for epoch in range(epochs):
         optimizer.zero_grad()
@@ -69,46 +106,15 @@ def train_stacking(models, X_train, y_train, epochs=100, lr=0.01):
         loss.backward()
         optimizer.step()
         if (epoch + 1) % 10 == 0:
-            print(f"Stacking Epoch {epoch+1}/{epochs}, Loss: {loss.item():.4f}")
+            print(f"Stacking Epoch {epoch + 1}/{epochs}, Loss: {loss.item():.4f}")
     return stacking_model
 
 
 def predict_and_save(models, stacking_model, X, current_date, symbol):
-    preds = []
-    for name, model in models.items():
-        if name in ["prophet", "arima"]:
-            if name == "prophet":
-                future = model.make_future_dataframe(periods=24, freq="H")
-                forecast = model.predict(future)
-                pred_1h = forecast["yhat"].iloc[-24]
-                pred_24h = forecast["yhat"].iloc[-1]
-            else:
-                pred_1h = model.predict(n_periods=1)[0]
-                pred_24h = model.predict(n_periods=24)[-1]
-            pred_array = np.column_stack(
-                (np.full(len(X), pred_1h), np.full(len(X), pred_24h))
-            )
-        elif isinstance(model, torch.nn.Module):
-            X_np = X.values if hasattr(X, "values") else X
-            X_tensor = torch.tensor(X_np, dtype=torch.float32)
-            model.eval()
-            with torch.no_grad():
-                pred_tensor = model(X_tensor)
-            pred_array = pred_tensor.numpy()
-            if pred_array.ndim == 1:
-                pred_array = pred_array.reshape(-1, 1)
-            if pred_array.shape[1] == 1:
-                pred_array = np.hstack([pred_array, pred_array])
-        else:
-            X_np = X.values if hasattr(X, "values") else X
-            pred_array = model.predict(X_np)
-            if pred_array.ndim == 1:
-                pred_array = pred_array.reshape(-1, 1)
-            if pred_array.shape[1] == 1:
-                pred_array = np.hstack([pred_array, pred_array])
-        preds.append(pred_array)
+    preds = [get_model_predictions(model, name, X) for name, model in models.items()]
     X_stack = np.hstack(preds)
     X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32)
+
     stacking_model.eval()
     with torch.no_grad():
         final_pred = stacking_model(X_stack_tensor).numpy()

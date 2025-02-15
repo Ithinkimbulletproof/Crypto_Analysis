@@ -2,7 +2,6 @@ import os
 import joblib
 import pandas as pd
 import numpy as np
-import torch
 from dotenv import load_dotenv
 from datetime import datetime
 from crypto_analysis.ml_models.stacking import predict_and_save
@@ -10,18 +9,28 @@ from crypto_analysis.ml_models.stacking import predict_and_save
 load_dotenv()
 
 stacking_model = joblib.load("models/stacking_unified.pkl")
-lstm_model = joblib.load("models/lstm_unified.pkl")
-transformer_model = joblib.load("models/transformer_unified.pkl")
-xgboost_model = joblib.load("models/xgboost_unified.pkl")
-lightgbm_model = joblib.load("models/lightgbm_unified.pkl")
+
+lstm_model_1h = joblib.load("models/lstm_1h.pkl")
+lstm_model_24h = joblib.load("models/lstm_24h.pkl")
+transformer_model_1h = joblib.load("models/transformer_1h.pkl")
+transformer_model_24h = joblib.load("models/transformer_24h.pkl")
+xgboost_model_1h = joblib.load("models/xgboost_1h.pkl")
+xgboost_model_24h = joblib.load("models/xgboost_24h.pkl")
+lightgbm_model_1h = joblib.load("models/lightgbm_1h.pkl")
+lightgbm_model_24h = joblib.load("models/lightgbm_24h.pkl")
+
 prophet_model = joblib.load("models/prophet_unified.pkl")
 arima_model = joblib.load("models/arima_unified.pkl")
 
 models = {
-    "lstm": lstm_model,
-    "transformer": transformer_model,
-    "xgboost": xgboost_model,
-    "lightgbm": lightgbm_model,
+    "lstm_1h": lstm_model_1h,
+    "lstm_24h": lstm_model_24h,
+    "transformer_1h": transformer_model_1h,
+    "transformer_24h": transformer_model_24h,
+    "xgboost_1h": xgboost_model_1h,
+    "xgboost_24h": xgboost_model_24h,
+    "lightgbm_1h": lightgbm_model_1h,
+    "lightgbm_24h": lightgbm_model_24h,
     "prophet": prophet_model,
     "arima": arima_model,
 }
