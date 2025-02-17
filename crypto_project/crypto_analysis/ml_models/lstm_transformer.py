@@ -144,15 +144,14 @@ def train_transformer(
 
 
 def train_lstm_dual(X_train, y_train, seq_len=10, **kwargs):
-    shift_1h = 4
-    shift_24h = 96
+    shift_1h = 1
+    shift_24h = 6
 
     y_train_1h = y_train.shift(-shift_1h).iloc[:-shift_1h]
     X_train_1h = X_train.iloc[:-shift_1h]
     print("Обучение LSTM для горизонта 1h:")
     model_1h = train_lstm(X_train_1h, y_train_1h, seq_len=seq_len, **kwargs)
 
-    # Для горизонта 24h: сдвигаем y_train на -96 и обрезаем X_train
     y_train_24h = y_train.shift(-shift_24h).iloc[:-shift_24h]
     X_train_24h = X_train.iloc[:-shift_24h]
     print("Обучение LSTM для горизонта 24h:")
@@ -162,8 +161,8 @@ def train_lstm_dual(X_train, y_train, seq_len=10, **kwargs):
 
 
 def train_transformer_dual(X_train, y_train, seq_len=10, **kwargs):
-    shift_1h = 4
-    shift_24h = 96
+    shift_1h = 1
+    shift_24h = 6
 
     y_train_1h = y_train.shift(-shift_1h).iloc[:-shift_1h]
     X_train_1h = X_train.iloc[:-shift_1h]

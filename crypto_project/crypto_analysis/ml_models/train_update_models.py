@@ -6,10 +6,7 @@ from datetime import datetime
 from sklearn.model_selection import TimeSeriesSplit, GridSearchCV
 import xgboost as xgb
 import lightgbm as lgb
-from crypto_analysis.ml_models.lstm_transformer import (
-    train_lstm_dual,
-    train_transformer_dual,
-)
+from crypto_analysis.ml_models.lstm_transformer import train_lstm, train_transformer
 from crypto_analysis.ml_models.xgboost_lightgbm import train_xgboost_and_lightgbm
 from crypto_analysis.ml_models.prophet_arima import train_prophet, train_arima
 from crypto_analysis.ml_models.stacking import train_stacking
@@ -109,9 +106,25 @@ def train_and_save_models():
 
     raw_data = df_train_std.copy()
 
-    X_train = df_train_std.select_dtypes(include=["number"]).copy()
-    y_train = df_train_std[["close_price_1h", "close_price_24h"]]
-    X_train = select_features(X_train, y_train)
+    df_hourly = df_train_std[df_train_std["date"].dt.minute == 0].copy()
+    df_hourly["close_price_1h"] = df_hourly["close_price"].shift(-1)
+    df_4h = df_train_std[
+        (df_train_std["date"].dt.minute == 0) & (df_train_std["date"].dt.hour % 4 == 0)
+    ].copy()
+    df_4h["close_price_24h"] = df_4h["close_price"].shift(-6)
+
+    X_train_hourly = df_hourly.select_dtypes(include=["number"]).copy()
+    y_train_hourly = df_hourly["close_price_1h"]
+    X_train_4h = df_4h.select_dtypes(include=["number"]).copy()
+    y_train_4h = df_4h["close_price_24h"]
+
+    X_train_features = select_features(
+        df_train_std.select_dtypes(include=["number"]).copy(),
+        df_train_std[["close_price_1h", "close_price_24h"]],
+    )
+    common_features = X_train_features.columns.intersection(X_train_hourly.columns)
+    X_train_hourly = X_train_hourly[common_features]
+    X_train_4h = X_train_4h[common_features]
 
     param_grid_xgb = {
         "n_estimators": [50, 100, 200],
@@ -130,7 +143,7 @@ def train_and_save_models():
         grid_search_xgb = GridSearchCV(
             xgb_model, param_grid_xgb, cv=tscv, scoring="neg_mean_squared_error"
         )
-        grid_search_xgb.fit(X_train, y_train["close_price_1h"])
+        grid_search_xgb.fit(X_train_features, df_train_std["close_price_1h"])
         best_params_xgb_1h = grid_search_xgb.best_params_
         save_best_params(best_params_xgb_1h, params_file_xgb_1h)
         print("✅ Оптимизация XGBoost (1h) завершена и параметры сохранены")
@@ -143,7 +156,7 @@ def train_and_save_models():
         grid_search_xgb_24h = GridSearchCV(
             xgb_model, param_grid_xgb, cv=tscv, scoring="neg_mean_squared_error"
         )
-        grid_search_xgb_24h.fit(X_train, y_train["close_price_24h"])
+        grid_search_xgb_24h.fit(X_train_features, df_train_std["close_price_24h"])
         best_params_xgb_24h = grid_search_xgb_24h.best_params_
         save_best_params(best_params_xgb_24h, params_file_xgb_24h)
         print("✅ Оптимизация XGBoost (24h) завершена и параметры сохранены")
@@ -167,7 +180,7 @@ def train_and_save_models():
         grid_search_lgb = GridSearchCV(
             lgb_model, param_grid_lgb, cv=tscv, scoring="neg_mean_squared_error"
         )
-        grid_search_lgb.fit(X_train, y_train["close_price_1h"])
+        grid_search_lgb.fit(X_train_features, df_train_std["close_price_1h"])
         best_params_lgb_1h = grid_search_lgb.best_params_
         save_best_params(best_params_lgb_1h, params_file_lgb_1h)
         print("✅ Оптимизация LightGBM (1h) завершена и параметры сохранены")
@@ -180,31 +193,55 @@ def train_and_save_models():
         grid_search_lgb_24h = GridSearchCV(
             lgb_model, param_grid_lgb, cv=tscv, scoring="neg_mean_squared_error"
         )
-        grid_search_lgb_24h.fit(X_train, y_train["close_price_24h"])
+        grid_search_lgb_24h.fit(X_train_features, df_train_std["close_price_24h"])
         best_params_lgb_24h = grid_search_lgb_24h.best_params_
         save_best_params(best_params_lgb_24h, params_file_lgb_24h)
         print("✅ Оптимизация LightGBM (24h) завершена и параметры сохранены")
 
-    print("Обучение LSTM для 1h и 24h:")
-    lstm_models = train_lstm_dual(
-        X_train,
-        df_train_std["close_price"],
-        seq_len=10,
-        epochs=20,
-        batch_size=64,
-        lr=0.001,
-        dropout=0.2,
-    )
-    print("Обучение Transformer для 1h и 24h:")
-    transformer_models = train_transformer_dual(
-        X_train,
-        df_train_std["close_price"],
+    print("Обучение LSTM для горизонта 1h:")
+    lstm_model_1h = train_lstm(
+        X_train_hourly,
+        y_train_hourly,
         seq_len=10,
         epochs=10,
         batch_size=64,
         lr=0.001,
         dropout=0.2,
     )
+    print("Обучение LSTM для горизонта 24h:")
+    lstm_model_24h = train_lstm(
+        X_train_4h,
+        y_train_4h,
+        seq_len=10,
+        epochs=10,
+        batch_size=64,
+        lr=0.001,
+        dropout=0.2,
+    )
+    lstm_models = {"1h": lstm_model_1h, "24h": lstm_model_24h}
+
+    print("Обучение Transformer для горизонта 1h:")
+    transformer_model_1h = train_transformer(
+        X_train_hourly,
+        y_train_hourly,
+        seq_len=10,
+        epochs=10,
+        batch_size=64,
+        lr=0.001,
+        dropout=0.2,
+    )
+    print("Обучение Transformer для горизонта 24h:")
+    transformer_model_24h = train_transformer(
+        X_train_4h,
+        y_train_4h,
+        seq_len=10,
+        epochs=10,
+        batch_size=64,
+        lr=0.001,
+        dropout=0.2,
+    )
+    transformer_models = {"1h": transformer_model_1h, "24h": transformer_model_24h}
+
     print("Обучение XGBoost для горизонта 1h:")
     model_xgb_1h = train_xgboost_and_lightgbm(
         df_train_std,
@@ -259,7 +296,12 @@ def train_and_save_models():
 
     print("Обучение стэкинговой модели с 2 выходами...")
     stacking_model = train_stacking(
-        base_models, X_train, y_train, raw_data=raw_data, epochs=10, lr=0.01
+        base_models,
+        X_train_features,
+        df_train_std[["close_price_1h", "close_price_24h"]],
+        raw_data=raw_data,
+        epochs=10,
+        lr=0.01,
     )
     save_model_with_metadata(
         stacking_model,

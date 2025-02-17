@@ -64,13 +64,13 @@ def get_model_predictions(model, name, X, raw_data=None):
 
     elif name in ["prophet", "arima"]:
         if name == "prophet":
-            future = model.make_future_dataframe(periods=24, freq="H")
+            future = model.make_future_dataframe(periods=24, freq="h")
             forecast = model.predict(future)
             pred_1h = forecast["yhat"].iloc[-24]
             pred_24h = forecast["yhat"].iloc[-1]
         else:
-            pred_1h = model.predict(n_periods=1)[0]
-            pred_24h = model.predict(n_periods=24)[-1]
+            pred_1h = model.predict(n_periods=1).iloc[0]
+            pred_24h = model.predict(n_periods=24).iloc[-1]
         pred_array = np.column_stack(
             (np.full(len(X), pred_1h), np.full(len(X), pred_24h))
         )
@@ -94,9 +94,13 @@ def train_stacking(models, X_train, y_train, raw_data=None, epochs=100, lr=0.01)
         else:
             pred = get_model_predictions(model, name, X_train)
         preds.append(pred)
-    X_stack = np.hstack(preds)
+
+    min_rows = min(pred.shape[0] for pred in preds)
+    preds_aligned = [pred[:min_rows] for pred in preds]
+    X_stack = np.hstack(preds_aligned)
+
     X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32)
-    y_tensor = torch.tensor(y_train.values, dtype=torch.float32)
+    y_tensor = torch.tensor(y_train.values[:min_rows], dtype=torch.float32)
     input_size = X_stack.shape[1]
 
     stacking_model = StackingModel(input_size=input_size)
@@ -123,9 +127,12 @@ def predict_and_save(models, stacking_model, X, current_date, symbol, raw_data=N
         else:
             pred = get_model_predictions(model, name, X)
         preds.append(pred)
-    X_stack = np.hstack(preds)
-    X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32)
 
+    min_rows = min(pred.shape[0] for pred in preds)
+    preds_aligned = [pred[:min_rows] for pred in preds]
+    X_stack = np.hstack(preds_aligned)
+
+    X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32)
     stacking_model.eval()
     with torch.no_grad():
         final_pred = stacking_model(X_stack_tensor).numpy()

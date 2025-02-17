@@ -70,3 +70,12 @@ htmlcov/
 *.bak
 *.swp
 *.swo
+/models/best_params_lgb_1h.json
+/models/best_params_lgb_24h.json
+/models/best_params_xgb_1h.json
+/models/best_params_xgb_24h.json
+/data_exports/unified_data.csv
+/data_exports/processed_train_std.csv
+/data_exports/processed_train_minmax.csv
+/data_exports/processed_test_std.csv
+/data_exports/processed_test_minmax.csv
