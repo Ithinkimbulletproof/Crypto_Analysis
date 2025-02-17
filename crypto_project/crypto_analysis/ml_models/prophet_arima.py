@@ -25,7 +25,7 @@ def train_prophet(series, horizon="24h", forecast_tag=None):
             daily_seasonality=False,
             weekly_seasonality=False,
             yearly_seasonality=False,
-            n_changepoints=10,
+            n_changepoints=5,
             changepoint_range=0.8,
         )
         model.add_seasonality(name="hourly", period=1 / 24, fourier_order=3)
@@ -34,25 +34,21 @@ def train_prophet(series, horizon="24h", forecast_tag=None):
             daily_seasonality=False,
             weekly_seasonality=True,
             yearly_seasonality=False,
-            n_changepoints=10,
+            n_changepoints=5,
             changepoint_range=0.8,
         )
         model.add_seasonality(name="daily", period=1, fourier_order=8)
 
-    model.fit(df, iter=200)
-    print(
-        "✅ Prophet модель обучена для горизонта:",
-        horizon,
-        "forecast_tag:",
-        forecast_tag,
-    )
+    model.fit(df, iter=100)
+    print("✅ Prophet модель обучена")
     return model
 
 
 def train_arima(series, horizon="24h", forecast_tag=None):
     series = series.dropna()
-    if len(series) > 5000:
-        series = series.iloc[-5000:]
+    if len(series) > 1000:
+        series = series.iloc[-1000:]
+
     if horizon == "24h":
         m = 96
     elif horizon == "1h":
@@ -66,13 +62,11 @@ def train_arima(series, horizon="24h", forecast_tag=None):
         m=m,
         trace=False,
         stepwise=True,
-        max_p=3,
-        max_q=3,
-        max_P=2,
-        max_Q=2,
-        max_order=10,
+        max_p=2,
+        max_q=2,
+        max_P=1,
+        max_Q=1,
+        max_order=5,
     )
-    print(
-        "✅ ARIMA модель обучена для горизонта:", horizon, "forecast_tag:", forecast_tag
-    )
+    print("✅ ARIMA модель обучена")
     return model

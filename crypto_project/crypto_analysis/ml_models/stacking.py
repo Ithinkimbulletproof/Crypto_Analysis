@@ -4,6 +4,7 @@ import torch.optim as optim
 import numpy as np
 import pandas as pd
 from crypto_analysis.models import CryptoPrediction
+from crypto_analysis.ml_models.xgboost_lightgbm import prepare_features
 
 
 class StackingModel(nn.Module):
@@ -20,37 +21,45 @@ class StackingModel(nn.Module):
         return x
 
 
-def get_model_predictions(model, name, X):
-    if name.endswith("_1h"):
-        if isinstance(model, torch.nn.Module):
-            X_np = X.values if hasattr(X, "values") else X
-            X_tensor = torch.tensor(X_np, dtype=torch.float32)
-            model.eval()
-            with torch.no_grad():
-                pred_tensor = model(X_tensor)
-            pred_array = pred_tensor.numpy()
+def get_model_predictions(model, name, X, raw_data=None):
+    if name.startswith("xgboost") or name.startswith("lightgbm"):
+        if raw_data is not None:
+            X_prepared = prepare_features(raw_data)
         else:
-            X_np = X.values if hasattr(X, "values") else X
-            pred_array = model.predict(X_np)
+            X_prepared = prepare_features(X)
+        cols_to_remove = ["close_price", "price_1h", "price_24h"]
+        X_prepared = X_prepared.drop(columns=cols_to_remove, errors="ignore")
+
+        pred_array = model.predict(X_prepared)
         if pred_array.ndim == 1:
             pred_array = pred_array.reshape(-1, 1)
-        pred_array = np.hstack([pred_array, np.zeros_like(pred_array)])
+        if name.endswith("_1h"):
+            pred_array = np.hstack([pred_array, np.zeros_like(pred_array)])
+        elif name.endswith("_24h"):
+            pred_array = np.hstack([np.zeros_like(pred_array), pred_array])
+        else:
+            if pred_array.shape[1] == 1:
+                pred_array = np.hstack([pred_array, pred_array])
         return pred_array
 
-    elif name.endswith("_24h"):
-        if isinstance(model, torch.nn.Module):
-            X_np = X.values if hasattr(X, "values") else X
-            X_tensor = torch.tensor(X_np, dtype=torch.float32)
-            model.eval()
-            with torch.no_grad():
-                pred_tensor = model(X_tensor)
-            pred_array = pred_tensor.numpy()
-        else:
-            X_np = X.values if hasattr(X, "values") else X
-            pred_array = model.predict(X_np)
+    elif isinstance(model, torch.nn.Module):
+        X_np = X.values if hasattr(X, "values") else X
+        X_tensor = torch.tensor(X_np, dtype=torch.float32)
+        if X_tensor.ndim == 2:
+            X_tensor = X_tensor.unsqueeze(1)
+        model.eval()
+        with torch.no_grad():
+            pred_tensor = model(X_tensor)
+        pred_array = pred_tensor.numpy()
         if pred_array.ndim == 1:
             pred_array = pred_array.reshape(-1, 1)
-        pred_array = np.hstack([np.zeros_like(pred_array), pred_array])
+        if name.endswith("_1h"):
+            pred_array = np.hstack([pred_array, np.zeros_like(pred_array)])
+        elif name.endswith("_24h"):
+            pred_array = np.hstack([np.zeros_like(pred_array), pred_array])
+        else:
+            if pred_array.shape[1] == 1:
+                pred_array = np.hstack([pred_array, pred_array])
         return pred_array
 
     elif name in ["prophet", "arima"]:
@@ -68,16 +77,8 @@ def get_model_predictions(model, name, X):
         return pred_array
 
     else:
-        if isinstance(model, torch.nn.Module):
-            X_np = X.values if hasattr(X, "values") else X
-            X_tensor = torch.tensor(X_np, dtype=torch.float32)
-            model.eval()
-            with torch.no_grad():
-                pred_tensor = model(X_tensor)
-            pred_array = pred_tensor.numpy()
-        else:
-            X_np = X.values if hasattr(X, "values") else X
-            pred_array = model.predict(X_np)
+        X_np = X.values if hasattr(X, "values") else X
+        pred_array = model.predict(X_np)
         if pred_array.ndim == 1:
             pred_array = pred_array.reshape(-1, 1)
         if pred_array.shape[1] == 1:
@@ -85,10 +86,14 @@ def get_model_predictions(model, name, X):
         return pred_array
 
 
-def train_stacking(models, X_train, y_train, epochs=100, lr=0.01):
-    preds = [
-        get_model_predictions(model, name, X_train) for name, model in models.items()
-    ]
+def train_stacking(models, X_train, y_train, raw_data=None, epochs=100, lr=0.01):
+    preds = []
+    for name, model in models.items():
+        if name.startswith("xgboost") or name.startswith("lightgbm"):
+            pred = get_model_predictions(model, name, X_train, raw_data=raw_data)
+        else:
+            pred = get_model_predictions(model, name, X_train)
+        preds.append(pred)
     X_stack = np.hstack(preds)
     X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32)
     y_tensor = torch.tensor(y_train.values, dtype=torch.float32)
@@ -110,8 +115,14 @@ def train_stacking(models, X_train, y_train, epochs=100, lr=0.01):
     return stacking_model
 
 
-def predict_and_save(models, stacking_model, X, current_date, symbol):
-    preds = [get_model_predictions(model, name, X) for name, model in models.items()]
+def predict_and_save(models, stacking_model, X, current_date, symbol, raw_data=None):
+    preds = []
+    for name, model in models.items():
+        if name.startswith("xgboost") or name.startswith("lightgbm"):
+            pred = get_model_predictions(model, name, X, raw_data=raw_data)
+        else:
+            pred = get_model_predictions(model, name, X)
+        preds.append(pred)
     X_stack = np.hstack(preds)
     X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32)
 

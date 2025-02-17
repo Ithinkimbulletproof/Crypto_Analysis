@@ -107,6 +107,8 @@ def train_and_save_models():
         )
         print("✅ Столбец 'cryptocurrency' преобразован с помощью pd.get_dummies")
 
+    raw_data = df_train_std.copy()
+
     X_train = df_train_std.select_dtypes(include=["number"]).copy()
     y_train = df_train_std[["close_price_1h", "close_price_24h"]]
     X_train = select_features(X_train, y_train)
@@ -256,7 +258,9 @@ def train_and_save_models():
     }
 
     print("Обучение стэкинговой модели с 2 выходами...")
-    stacking_model = train_stacking(base_models, X_train, y_train, epochs=100, lr=0.01)
+    stacking_model = train_stacking(
+        base_models, X_train, y_train, raw_data=raw_data, epochs=10, lr=0.01
+    )
     save_model_with_metadata(
         stacking_model,
         "stacking",
