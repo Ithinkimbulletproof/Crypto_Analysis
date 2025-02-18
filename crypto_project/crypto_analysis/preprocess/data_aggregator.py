@@ -139,6 +139,9 @@ def preprocessing_data(df):
 
     df = df.sort_values("date").reset_index(drop=True)
 
+    df["hour"] = df["date"].dt.hour
+    df["dayofweek"] = df["date"].dt.dayofweek
+
     price_cols = ["open_price", "high_price", "low_price", "close_price"]
     df = remove_outliers_iqr(df, price_cols)
 
@@ -170,14 +173,21 @@ def preprocessing_data(df):
     minmax_scaler = MinMaxScaler()
     X_train_minmax = minmax_scaler.fit_transform(df_train[features_to_scale])
     X_test_minmax = minmax_scaler.transform(df_test[features_to_scale])
-    y_train_minmax = df_train[["close_price_1h", "close_price_24h"]]
-    y_test_minmax = df_test[["close_price_1h", "close_price_24h"]]
 
     std_scaler = StandardScaler()
     X_train_std = std_scaler.fit_transform(df_train[features_to_scale])
     X_test_std = std_scaler.transform(df_test[features_to_scale])
-    y_train_std = df_train[["close_price_1h", "close_price_24h"]]
-    y_test_std = df_test[["close_price_1h", "close_price_24h"]]
+
+    y_train = df_train[["close_price_1h", "close_price_24h"]]
+    y_test = df_test[["close_price_1h", "close_price_24h"]]
+
+    target_scaler_minmax = MinMaxScaler()
+    y_train_minmax_scaled = target_scaler_minmax.fit_transform(y_train)
+    y_test_minmax_scaled = target_scaler_minmax.transform(y_test)
+
+    target_scaler_std = StandardScaler()
+    y_train_std_scaled = target_scaler_std.fit_transform(y_train)
+    y_test_std_scaled = target_scaler_std.transform(y_test)
 
     df_minmax_full = df.copy()
     df_minmax_full[features_to_scale] = minmax_scaler.transform(
@@ -206,8 +216,14 @@ def preprocessing_data(df):
         ),
         "X_train_minmax": pd.DataFrame(X_train_minmax, columns=features_to_scale),
         "X_test_minmax": pd.DataFrame(X_test_minmax, columns=features_to_scale),
-        "y_train_minmax": y_train_minmax,
-        "y_test_minmax": y_test_minmax,
+        "y_train_minmax": y_train,
+        "y_test_minmax": y_test,
+        "y_train_minmax_scaled": pd.DataFrame(
+            y_train_minmax_scaled, columns=["close_price_1h", "close_price_24h"]
+        ),
+        "y_test_minmax_scaled": pd.DataFrame(
+            y_test_minmax_scaled, columns=["close_price_1h", "close_price_24h"]
+        ),
         "df_train_std": pd.concat(
             [
                 df_train.reset_index(drop=True),
@@ -224,9 +240,19 @@ def preprocessing_data(df):
         ),
         "X_train_std": pd.DataFrame(X_train_std, columns=features_to_scale),
         "X_test_std": pd.DataFrame(X_test_std, columns=features_to_scale),
-        "y_train_std": y_train_std,
-        "y_test_std": y_test_std,
+        "y_train_std": y_train,
+        "y_test_std": y_test,
+        "y_train_std_scaled": pd.DataFrame(
+            y_train_std_scaled, columns=["close_price_1h", "close_price_24h"]
+        ),
+        "y_test_std_scaled": pd.DataFrame(
+            y_test_std_scaled, columns=["close_price_1h", "close_price_24h"]
+        ),
         "df_minmax": df_minmax_full,
         "df_std": df_std_full,
+        "minmax_scaler": minmax_scaler,
+        "std_scaler": std_scaler,
+        "target_scaler_minmax": target_scaler_minmax,
+        "target_scaler_std": target_scaler_std,
     }
     return processed_data, features_to_scale

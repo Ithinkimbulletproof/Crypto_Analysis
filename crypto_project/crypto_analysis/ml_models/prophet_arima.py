@@ -67,6 +67,8 @@ def train_arima(series, horizon="24h", forecast_tag=None):
         max_P=1,
         max_Q=1,
         max_order=5,
+        error_action="ignore",
+        suppress_warnings=True,
     )
     print("✅ ARIMA модель обучена")
     return model
