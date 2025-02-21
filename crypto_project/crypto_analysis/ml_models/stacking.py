@@ -29,7 +29,13 @@ def get_model_predictions(model, name, X, raw_data=None):
             X_prepared = prepare_features(X)
         cols_to_remove = ["close_price", "price_1h", "price_24h"]
         X_prepared = X_prepared.drop(columns=cols_to_remove, errors="ignore")
-
+        if name.startswith("xgboost"):
+            booster = model.get_booster()
+            expected_features = booster.feature_names
+            X_prepared = X_prepared.reindex(columns=expected_features, fill_value=0)
+        elif name.startswith("lightgbm"):
+            expected_features = model.feature_name_
+            X_prepared = X_prepared.reindex(columns=expected_features, fill_value=0)
         pred_array = model.predict(X_prepared)
         if pred_array.ndim == 1:
             pred_array = pred_array.reshape(-1, 1)
@@ -94,19 +100,15 @@ def train_stacking(models, X_train, y_train, raw_data=None, epochs=100, lr=0.01)
         else:
             pred = get_model_predictions(model, name, X_train)
         preds.append(pred)
-
     min_rows = min(pred.shape[0] for pred in preds)
     preds_aligned = [pred[:min_rows] for pred in preds]
     X_stack = np.hstack(preds_aligned)
-
     X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32)
     y_tensor = torch.tensor(y_train.values[:min_rows], dtype=torch.float32)
     input_size = X_stack.shape[1]
-
     stacking_model = StackingModel(input_size=input_size)
     optimizer = optim.Adam(stacking_model.parameters(), lr=lr)
     criterion = nn.MSELoss()
-
     stacking_model.train()
     for epoch in range(epochs):
         optimizer.zero_grad()
@@ -127,21 +129,17 @@ def predict_and_save(models, stacking_model, X, current_date, symbol, raw_data=N
         else:
             pred = get_model_predictions(model, name, X)
         preds.append(pred)
-
     min_rows = min(pred.shape[0] for pred in preds)
     preds_aligned = [pred[:min_rows] for pred in preds]
     X_stack = np.hstack(preds_aligned)
-
     X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32)
     stacking_model.eval()
     with torch.no_grad():
         final_pred = stacking_model(X_stack_tensor).numpy()
-
     try:
         price_now = X["close_price"].iloc[-1]
     except KeyError:
         price_now = None
-
     price_1h = final_pred[-1, 0]
     price_24h = final_pred[-1, 1]
     change_percent_1h = (
@@ -151,7 +149,6 @@ def predict_and_save(models, stacking_model, X, current_date, symbol, raw_data=N
         ((price_24h - price_now) / price_now * 100) if price_now else None
     )
     prediction_confidence = 0.9
-
     prediction = CryptoPrediction.objects.create(
         symbol=symbol if isinstance(symbol, str) else ",".join(symbol),
         current_price=price_now,
