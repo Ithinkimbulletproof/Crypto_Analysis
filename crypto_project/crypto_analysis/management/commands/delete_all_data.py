@@ -5,6 +5,7 @@ from crypto_analysis.models import (
     NewsArticle,
     SentimentData,
     KeyEntity,
+    CryptoPrediction,
 )
 
 
@@ -14,6 +15,7 @@ class Command(BaseCommand):
     def handle(self, *args, **kwargs):
         IndicatorData.objects.all().delete()
         MarketData.objects.all().delete()
+        CryptoPrediction.objects.all().delete()
         # NewsArticle.objects.all().delete()
         # SentimentData.objects.all().delete()
         # KeyEntity.objects.all().delete()

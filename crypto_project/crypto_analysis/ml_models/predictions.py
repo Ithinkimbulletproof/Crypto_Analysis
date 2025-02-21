@@ -51,6 +51,8 @@ def run_predictions():
     if "cryptocurrency" in X_actual.columns:
         X_actual = pd.get_dummies(X_actual, columns=["cryptocurrency"], drop_first=True)
 
+    X_actual = X_actual.dropna(subset=["close_price"])
+
     if "close_price_24h" not in X_actual.columns:
         X_actual["close_price_1h"] = X_actual["close_price"].shift(-4)
         X_actual["close_price_24h"] = X_actual["close_price"].shift(-96)

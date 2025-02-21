@@ -1,7 +1,6 @@
 import time
 import asyncio
 import logging
-import os
 from django.core.management.base import BaseCommand
 from crypto_analysis.fetching.data_fetcher import fetch_data
 from crypto_analysis.fetching.news_parser import run_full_import
@@ -9,16 +8,13 @@ from crypto_analysis.preprocess.data_preprocessing import (
     preprocess_data as indicator_preprocess,
 )
 from crypto_analysis.preprocess.sentiment_analysis import analyze_sentiment
-from crypto_analysis.preprocess.data_aggregator import (
-    build_unified_dataframe,
-    preprocessing_data,
-)
+from crypto_analysis.preprocess.data_aggregator import save_csv_files_by_currency
 
 logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Получает данные с бирж, рассчитывает индикаторы, анализирует новости и объединяет данные"
+    help = "Получает данные с бирж, рассчитывает индикаторы, анализирует новости и сохраняет данные для каждой криптовалюты в отдельный CSV"
 
     def handle(self, *args, **kwargs):
         asyncio.run(self.async_handle(*args, **kwargs))
@@ -62,40 +58,16 @@ class Command(BaseCommand):
                 )
             )
 
-            self.stdout.write(self.style.SUCCESS("Запуск объединения данных..."))
+            self.stdout.write(
+                self.style.SUCCESS("Сохранение данных по каждой валюте...")
+            )
             start_time = time.time()
-            df_unified = await asyncio.to_thread(build_unified_dataframe)
-            if df_unified.empty:
-                raise ValueError("Объединённый DataFrame пуст!")
-
-            processed_data, features = await asyncio.to_thread(
-                preprocessing_data, df_unified
-            )
-
-            save_path = os.path.join(os.getcwd(), "data_exports")
-            os.makedirs(save_path, exist_ok=True)
-
-            df_unified.to_csv(os.path.join(save_path, "unified_data.csv"), index=False)
-
-            processed_data["df_train_minmax"].to_csv(
-                os.path.join(save_path, "processed_train_minmax.csv"), index=False
-            )
-            processed_data["df_test_minmax"].to_csv(
-                os.path.join(save_path, "processed_test_minmax.csv"), index=False
-            )
-            processed_data["df_train_std"].to_csv(
-                os.path.join(save_path, "processed_train_std.csv"), index=False
-            )
-            processed_data["df_test_std"].to_csv(
-                os.path.join(save_path, "processed_test_std.csv"), index=False
-            )
-
+            save_path = await asyncio.to_thread(save_csv_files_by_currency)
             self.stdout.write(
                 self.style.SUCCESS(
-                    f"Объединённые данные сохранены за {time.time() - start_time:.2f} сек"
+                    f"Файлы сохранены в {save_path} за {time.time() - start_time:.2f} сек"
                 )
             )
-            self.stdout.write(self.style.SUCCESS(f"Файлы сохранены в {save_path}"))
 
         except Exception as e:
             logger.error(f"Ошибка: {str(e)}")

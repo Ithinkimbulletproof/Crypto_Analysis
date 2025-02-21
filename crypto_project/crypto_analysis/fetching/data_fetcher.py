@@ -43,9 +43,9 @@ def get_since(last_date, default_start_date):
 
 
 async def fetch_data():
-    exchanges = [ccxt_async.binance(), ccxt_async.bybit(), ccxt_async.okx()]
+    exchanges = [ccxt_async.binance(), ccxt_async.bybit()]
     symbols = os.getenv("CRYPTOPAIRS").split(",")
-    timeframe = "15m"
+    timeframe = "1h"
     default_start_date = get_default_start_date()
 
     logger.info(f"Загрузка данных для пар: {symbols}")

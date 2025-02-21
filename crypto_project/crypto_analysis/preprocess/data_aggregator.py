@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import json
+import os
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from crypto_analysis.models import MarketData, IndicatorData, SentimentData, KeyEntity
 
@@ -138,7 +139,6 @@ def preprocessing_data(df):
             raise KeyError("Не найдена колонка 'date' в DataFrame.")
 
     df = df.sort_values("date").reset_index(drop=True)
-
     df["hour"] = df["date"].dt.hour
     df["dayofweek"] = df["date"].dt.dayofweek
 
@@ -256,3 +256,48 @@ def preprocessing_data(df):
         "target_scaler_std": target_scaler_std,
     }
     return processed_data, features_to_scale
+
+
+def save_csv_files_by_currency():
+    df = build_unified_dataframe()
+    if df.empty:
+        raise ValueError("Объединённый DataFrame пуст!")
+
+    save_path = os.path.join(os.getcwd(), "data_exports")
+    os.makedirs(save_path, exist_ok=True)
+
+    currencies = df["cryptocurrency"].unique()
+
+    for currency in currencies:
+        safe_currency = str(currency).strip().replace("/", "_").replace("\\", "_")
+
+        df_currency = df[df["cryptocurrency"] == currency].copy()
+
+        processed_data, features_to_scale = preprocessing_data(df_currency)
+
+        unified_file = os.path.join(save_path, f"unified_data_{safe_currency}.csv")
+        df_currency.to_csv(unified_file, index=False)
+
+        processed_train_minmax_file = os.path.join(
+            save_path, f"processed_train_minmax_{safe_currency}.csv"
+        )
+        processed_data["df_train_minmax"].to_csv(
+            processed_train_minmax_file, index=False
+        )
+
+        processed_test_minmax_file = os.path.join(
+            save_path, f"processed_test_minmax_{safe_currency}.csv"
+        )
+        processed_data["df_test_minmax"].to_csv(processed_test_minmax_file, index=False)
+
+        processed_train_std_file = os.path.join(
+            save_path, f"processed_train_std_{safe_currency}.csv"
+        )
+        processed_data["df_train_std"].to_csv(processed_train_std_file, index=False)
+
+        processed_test_std_file = os.path.join(
+            save_path, f"processed_test_std_{safe_currency}.csv"
+        )
+        processed_data["df_test_std"].to_csv(processed_test_std_file, index=False)
+
+    return save_path
