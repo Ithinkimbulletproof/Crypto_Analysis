@@ -10,7 +10,7 @@ import lightgbm as lgb
 from crypto_analysis.ml_models.lstm_transformer import train_lstm, train_transformer
 from crypto_analysis.ml_models.xgboost_lightgbm import train_xgboost_and_lightgbm
 from crypto_analysis.ml_models.prophet_arima import train_prophet, train_arima
-from crypto_analysis.ml_models.stacking import train_stacking
+from crypto_analysis.ml_models.stacking import train_stacking, get_model_predictions
 
 MODEL_DIR = "models"
 if not os.path.exists(MODEL_DIR):
@@ -122,6 +122,8 @@ def compute_relative_metrics(model, X, y_true):
             X_tensor = torch.tensor(X, dtype=torch.float32)
         else:
             X_tensor = X
+        if X_tensor.ndim == 2:
+            X_tensor = X_tensor.unsqueeze(1)
         with torch.no_grad():
             y_pred_tensor = model(X_tensor)
         y_pred = y_pred_tensor.cpu().numpy().squeeze()
@@ -131,9 +133,30 @@ def compute_relative_metrics(model, X, y_true):
     else:
         y_true = np.array(y_true)
 
+    if y_pred.ndim > 1 and y_true.ndim == 1:
+        y_pred = y_pred[:, 0]
+
+    min_len = min(len(y_true), len(y_pred))
+    y_true = y_true[:min_len]
+    y_pred = y_pred[:min_len]
+
     mask = y_true != 0
     mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
     return {"MAPE": mape}
+
+
+def get_stacking_input(base_models, X, raw_data=None):
+    preds = []
+    for name, model in base_models.items():
+        if name.startswith("xgboost") or name.startswith("lightgbm"):
+            pred = get_model_predictions(model, name, X, raw_data=raw_data)
+        else:
+            pred = get_model_predictions(model, name, X)
+        preds.append(pred)
+    min_rows = min(pred.shape[0] for pred in preds)
+    preds_aligned = [pred[:min_rows] for pred in preds]
+    X_stack = np.hstack(preds_aligned)
+    return X_stack
 
 
 def train_and_save_models():
@@ -374,8 +397,11 @@ def train_and_save_models():
             lr=0.01,
         )
 
+        X_stack_for_metrics = get_stacking_input(
+            base_models, X_train_features, raw_data=raw_data
+        )
         metrics_stack = compute_relative_metrics(
-            stacking_model, X_train_features, df_train_std["close_price_1h"]
+            stacking_model, X_stack_for_metrics, df_train_std["close_price_1h"]
         )
         metrics_lstm1h = compute_relative_metrics(
             lstm_models["1h"], X_train_features, df_train_std["close_price_1h"]
@@ -475,10 +501,18 @@ def train_and_save_models():
             metrics_lgb24h,
         )
         save_model_with_metadata(
-            model_prophet, "prophet", currency, currency, {"unified": data["unified"]}
+            model_prophet,
+            "prophet",
+            currency,
+            currency,
+            {"unified": data["unified"]},
         )
         save_model_with_metadata(
-            model_arima, "arima", currency, currency, {"unified": data["unified"]}
+            model_arima,
+            "arima",
+            currency,
+            currency,
+            {"unified": data["unified"]},
         )
         print(f"✅ Модели для {currency} обучены и сохранены.")
     print("\n✅ Все модели обучены и сохранены для всех криптовалют.")
