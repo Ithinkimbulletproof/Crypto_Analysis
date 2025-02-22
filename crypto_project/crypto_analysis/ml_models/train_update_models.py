@@ -109,40 +109,77 @@ def save_model_with_metadata(model, name, tag, currency, data, metrics=None):
     )
 
 
-def compute_relative_metrics(model, X, y_true):
-    try:
-        y_pred = model.predict(X)
-    except AttributeError:
-        import torch
-
-        model.eval()
-        if isinstance(X, pd.DataFrame):
-            X_tensor = torch.tensor(X.values, dtype=torch.float32)
-        elif isinstance(X, np.ndarray):
-            X_tensor = torch.tensor(X, dtype=torch.float32)
+def compute_relative_metrics(model, X, y_true, model_name=None, raw_data=None):
+    if model_name is not None and (
+        model_name.startswith("xgboost") or model_name.startswith("lightgbm")
+    ):
+        y_pred = get_model_predictions(model, model_name, X, raw_data=raw_data)
+        if model_name.endswith("_1h"):
+            y_pred = y_pred[:, 0]
+        elif model_name.endswith("_24h"):
+            y_pred = y_pred[:, 1]
         else:
-            X_tensor = X
-        if X_tensor.ndim == 2:
-            X_tensor = X_tensor.unsqueeze(1)
-        with torch.no_grad():
-            y_pred_tensor = model(X_tensor)
-        y_pred = y_pred_tensor.cpu().numpy().squeeze()
+            y_pred = y_pred[:, 0]
+    else:
+        try:
+            y_pred = model.predict(X)
+        except AttributeError:
+            import torch
 
-    if isinstance(y_true, pd.Series):
+            model.eval()
+            if isinstance(X, pd.DataFrame):
+                X_tensor = torch.tensor(X.values, dtype=torch.float32)
+            elif isinstance(X, np.ndarray):
+                X_tensor = torch.tensor(X, dtype=torch.float32)
+            else:
+                X_tensor = X
+            if X_tensor.ndim == 2:
+                X_tensor = X_tensor.unsqueeze(1)
+            with torch.no_grad():
+                y_pred_tensor = model(X_tensor)
+            y_pred = y_pred_tensor.cpu().numpy().squeeze()
+
+    if isinstance(y_true, pd.DataFrame):
+        y_true = y_true.values
+    elif isinstance(y_true, pd.Series):
         y_true = y_true.values
     else:
         y_true = np.array(y_true)
 
-    if y_pred.ndim > 1 and y_true.ndim == 1:
-        y_pred = y_pred[:, 0]
+    if y_true.ndim == 1:
+        y_true = y_true.reshape(-1, 1)
+    if y_pred.ndim == 1:
+        y_pred = y_pred.reshape(-1, 1)
 
-    min_len = min(len(y_true), len(y_pred))
+    min_len = min(y_true.shape[0], y_pred.shape[0])
     y_true = y_true[:min_len]
     y_pred = y_pred[:min_len]
 
-    mask = y_true != 0
-    mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
-    return {"MAPE": mape}
+    if y_pred.shape[1] == y_true.shape[1]:
+        metrics = {}
+        target_names = (
+            ["1h", "24h"]
+            if y_true.shape[1] == 2
+            else [str(i) for i in range(y_true.shape[1])]
+        )
+        for i in range(y_true.shape[1]):
+            mask = y_true[:, i] != 0
+            mape = (
+                np.mean(np.abs((y_true[mask, i] - y_pred[mask, i]) / y_true[mask, i]))
+                * 100
+            )
+            metrics[f"MAPE_{target_names[i]}"] = mape
+        return metrics
+    elif y_pred.shape[1] == 1:
+        mask = y_true[:, 0] != 0
+        mape = (
+            np.mean(np.abs((y_true[mask, 0] - y_pred[mask, 0]) / y_true[mask, 0])) * 100
+        )
+        return {"MAPE": mape}
+    else:
+        raise ValueError(
+            f"Shape mismatch between y_true {y_true.shape} and y_pred {y_pred.shape}"
+        )
 
 
 def get_stacking_input(base_models, X, raw_data=None):
@@ -401,7 +438,9 @@ def train_and_save_models():
             base_models, X_train_features, raw_data=raw_data
         )
         metrics_stack = compute_relative_metrics(
-            stacking_model, X_stack_for_metrics, df_train_std["close_price_1h"]
+            stacking_model,
+            X_stack_for_metrics,
+            df_train_std[["close_price_1h", "close_price_24h"]],
         )
         metrics_lstm1h = compute_relative_metrics(
             lstm_models["1h"], X_train_features, df_train_std["close_price_1h"]
@@ -416,17 +455,43 @@ def train_and_save_models():
             transformer_models["24h"], X_train_features, df_train_std["close_price_24h"]
         )
         metrics_xgb1h = compute_relative_metrics(
-            model_xgb_1h, X_train_features, df_train_std["close_price_1h"]
+            model_xgb_1h,
+            X_train_features,
+            df_train_std["close_price_1h"],
+            model_name="xgboost_1h",
+            raw_data=raw_data,
         )
         metrics_xgb24h = compute_relative_metrics(
-            model_xgb_24h, X_train_features, df_train_std["close_price_24h"]
+            model_xgb_24h,
+            X_train_features,
+            df_train_std["close_price_24h"],
+            model_name="xgboost_24h",
+            raw_data=raw_data,
         )
         metrics_lgb1h = compute_relative_metrics(
-            model_lgb_1h, X_train_features, df_train_std["close_price_1h"]
+            model_lgb_1h,
+            X_train_features,
+            df_train_std["close_price_1h"],
+            model_name="lightgbm_1h",
+            raw_data=raw_data,
         )
         metrics_lgb24h = compute_relative_metrics(
-            model_lgb_24h, X_train_features, df_train_std["close_price_24h"]
+            model_lgb_24h,
+            X_train_features,
+            df_train_std["close_price_24h"],
+            model_name="lightgbm_24h",
+            raw_data=raw_data,
         )
+        print(f"\nРезультаты для {currency}:")
+        print(f"Stacking: {metrics_stack}")
+        print(f"LSTM 1h: {metrics_lstm1h}")
+        print(f"LSTM 24h: {metrics_lstm24h}")
+        print(f"Transformer 1h: {metrics_trans1h}")
+        print(f"Transformer 24h: {metrics_trans24h}")
+        print(f"XGBoost 1h: {metrics_xgb1h}")
+        print(f"XGBoost 24h: {metrics_xgb24h}")
+        print(f"LightGBM 1h: {metrics_lgb1h}")
+        print(f"LightGBM 24h: {metrics_lgb24h}")
 
         save_model_with_metadata(
             stacking_model,
