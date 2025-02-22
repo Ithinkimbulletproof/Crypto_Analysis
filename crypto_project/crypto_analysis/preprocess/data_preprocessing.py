@@ -38,6 +38,8 @@ def preprocess_data():
     grouped = df.groupby("cryptocurrency")
     new_entries = []
 
+    overlap_period = timedelta(days=60)
+
     for crypto, data in grouped:
         logger.info(f"Обрабатываем {crypto}: всего записей = {len(data)}")
         last_indicator = (
@@ -47,8 +49,10 @@ def preprocess_data():
         )
         if last_indicator:
             last_date = last_indicator.date
-            logger.info(f"Для {crypto} индикаторы уже рассчитаны до {last_date}.")
-            data_calc = data[data["date"] > last_date]
+            logger.info(
+                f"Для {crypto} индикаторы уже рассчитаны до {last_date}. Используем перекрытие: {overlap_period}."
+            )
+            data_calc = data[data["date"] > (last_date - overlap_period)]
         else:
             logger.info(
                 f"Для {crypto} индикаторы ещё не вычислялись, используем данные с {calc_start_date}."

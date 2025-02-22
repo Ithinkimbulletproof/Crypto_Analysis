@@ -272,7 +272,6 @@ def save_csv_files_by_currency():
         safe_currency = str(currency).strip().replace("/", "_").replace("\\", "_")
 
         df_currency = df[df["cryptocurrency"] == currency].copy()
-
         processed_data, features_to_scale = preprocessing_data(df_currency)
 
         unified_file = os.path.join(save_path, f"unified_data_{safe_currency}.csv")
