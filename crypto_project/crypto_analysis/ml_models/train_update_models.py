@@ -202,13 +202,46 @@ def train_and_save_models():
     if not data_by_currency:
         raise ValueError("Нет данных для обработки по криптовалютам.")
 
+    tscv = TimeSeriesSplit(n_splits=5)
+    param_grid_xgb = {
+        "n_estimators": [50, 100, 200],
+        "max_depth": [3, 5, 7],
+        "learning_rate": [0.01, 0.1, 0.2],
+        "subsample": [0.7, 1.0],
+    }
+    param_grid_lgb = {
+        "n_estimators": [50, 100, 200],
+        "max_depth": [5, 10, 15],
+        "learning_rate": [0.01, 0.1, 0.2],
+        "num_leaves": [50, 100, 150],
+        "subsample": [0.7, 1.0],
+    }
+    xgb_model = xgb.XGBRegressor(objective="reg:squarederror")
+    lgb_model = lgb.LGBMRegressor(
+        objective="regression", force_col_wise=True, verbose=-1
+    )
+
+    def get_best_params(model, param_grid, X, y, params_file, model_desc):
+        if os.path.exists(params_file):
+            best_params = load_best_params(params_file)
+            print(f"✅ Загружены оптимальные параметры для {model_desc} для {currency}")
+        else:
+            grid_search = GridSearchCV(
+                model, param_grid, cv=tscv, scoring="neg_mean_squared_error"
+            )
+            grid_search.fit(X, y)
+            best_params = grid_search.best_params_
+            save_best_params(best_params, params_file)
+            print(
+                f"✅ Оптимизация {model_desc} для {currency} завершена и параметры сохранены"
+            )
+        return best_params
+
     for currency, data in data_by_currency.items():
         print(f"\nОбучение моделей для {currency}...")
         df_train_std = data["processed_train_std"].copy()
-
         if "cryptocurrency" in df_train_std.columns:
             df_train_std.drop(columns=["cryptocurrency"], inplace=True)
-
         df_train_std.columns = df_train_std.columns.str.replace(" ", "_")
         df_train_std["date"] = pd.to_datetime(df_train_std["date"])
         raw_data = df_train_std.copy()
@@ -234,173 +267,92 @@ def train_and_save_models():
         X_train_hourly = X_train_hourly[common_features]
         X_train_4h = X_train_4h[common_features]
 
-        param_grid_xgb = {
-            "n_estimators": [50, 100, 200],
-            "max_depth": [3, 5, 7],
-            "learning_rate": [0.01, 0.1, 0.2],
-            "subsample": [0.7, 1.0],
-        }
-        tscv = TimeSeriesSplit(n_splits=5)
-        xgb_model = xgb.XGBRegressor(objective="reg:squarederror")
-
         params_file_xgb_1h = os.path.join(
             MODEL_DIR, f"best_params_xgb_1h_{currency}.json"
         )
-        if os.path.exists(params_file_xgb_1h):
-            best_params_xgb_1h = load_best_params(params_file_xgb_1h)
-            print(f"✅ Загружены оптимальные параметры для XGBoost (1h) для {currency}")
-        else:
-            grid_search_xgb = GridSearchCV(
-                xgb_model, param_grid_xgb, cv=tscv, scoring="neg_mean_squared_error"
-            )
-            grid_search_xgb.fit(X_train_features, df_train_std["close_price_1h"])
-            best_params_xgb_1h = grid_search_xgb.best_params_
-            save_best_params(best_params_xgb_1h, params_file_xgb_1h)
-            print(
-                f"✅ Оптимизация XGBoost (1h) для {currency} завершена и параметры сохранены"
-            )
-
+        best_params_xgb_1h = get_best_params(
+            xgb_model,
+            param_grid_xgb,
+            X_train_features,
+            df_train_std["close_price_1h"],
+            params_file_xgb_1h,
+            "XGBoost (1h)",
+        )
         params_file_xgb_24h = os.path.join(
             MODEL_DIR, f"best_params_xgb_24h_{currency}.json"
         )
-        if os.path.exists(params_file_xgb_24h):
-            best_params_xgb_24h = load_best_params(params_file_xgb_24h)
-            print(
-                f"✅ Загружены оптимальные параметры для XGBoost (24h) для {currency}"
-            )
-        else:
-            grid_search_xgb_24h = GridSearchCV(
-                xgb_model, param_grid_xgb, cv=tscv, scoring="neg_mean_squared_error"
-            )
-            grid_search_xgb_24h.fit(X_train_features, df_train_std["close_price_24h"])
-            best_params_xgb_24h = grid_search_xgb_24h.best_params_
-            save_best_params(best_params_xgb_24h, params_file_xgb_24h)
-            print(
-                f"✅ Оптимизация XGBoost (24h) для {currency} завершена и параметры сохранены"
-            )
-
-        param_grid_lgb = {
-            "n_estimators": [50, 100, 200],
-            "max_depth": [5, 10, 15],
-            "learning_rate": [0.01, 0.1, 0.2],
-            "num_leaves": [50, 100, 150],
-            "subsample": [0.7, 1.0],
-        }
-        lgb_model = lgb.LGBMRegressor(
-            objective="regression", force_col_wise=True, verbose=-1
+        best_params_xgb_24h = get_best_params(
+            xgb_model,
+            param_grid_xgb,
+            X_train_features,
+            df_train_std["close_price_24h"],
+            params_file_xgb_24h,
+            "XGBoost (24h)",
         )
 
         params_file_lgb_1h = os.path.join(
             MODEL_DIR, f"best_params_lgb_1h_{currency}.json"
         )
-        if os.path.exists(params_file_lgb_1h):
-            best_params_lgb_1h = load_best_params(params_file_lgb_1h)
-            print(
-                f"✅ Загружены оптимальные параметры для LightGBM (1h) для {currency}"
-            )
-        else:
-            grid_search_lgb = GridSearchCV(
-                lgb_model, param_grid_lgb, cv=tscv, scoring="neg_mean_squared_error"
-            )
-            grid_search_lgb.fit(X_train_features, df_train_std["close_price_1h"])
-            best_params_lgb_1h = grid_search_lgb.best_params_
-            save_best_params(best_params_lgb_1h, params_file_lgb_1h)
-            print(
-                f"✅ Оптимизация LightGBM (1h) для {currency} завершена и параметры сохранены"
-            )
-
+        best_params_lgb_1h = get_best_params(
+            lgb_model,
+            param_grid_lgb,
+            X_train_features,
+            df_train_std["close_price_1h"],
+            params_file_lgb_1h,
+            "LightGBM (1h)",
+        )
         params_file_lgb_24h = os.path.join(
             MODEL_DIR, f"best_params_lgb_24h_{currency}.json"
         )
-        if os.path.exists(params_file_lgb_24h):
-            best_params_lgb_24h = load_best_params(params_file_lgb_24h)
-            print(
-                f"✅ Загружены оптимальные параметры для LightGBM (24h) для {currency}"
+        best_params_lgb_24h = get_best_params(
+            lgb_model,
+            param_grid_lgb,
+            X_train_features,
+            df_train_std["close_price_24h"],
+            params_file_lgb_24h,
+            "LightGBM (24h)",
+        )
+
+        lstm_models = {}
+        transformer_models = {}
+        for horizon, (X_train, y_train) in {
+            "1h": (X_train_hourly, y_train_hourly),
+            "24h": (X_train_4h, y_train_4h),
+        }.items():
+            print(f"Обучение LSTM для горизонта {horizon} для {currency}:")
+            lstm_models[horizon] = train_lstm(
+                X_train,
+                y_train,
+                seq_len=10,
+                epochs=10,
+                batch_size=64,
+                lr=0.001,
+                dropout=0.2,
             )
-        else:
-            grid_search_lgb_24h = GridSearchCV(
-                lgb_model, param_grid_lgb, cv=tscv, scoring="neg_mean_squared_error"
+            print(f"Обучение Transformer для горизонта {horizon} для {currency}:")
+            transformer_models[horizon] = train_transformer(
+                X_train,
+                y_train,
+                seq_len=10,
+                epochs=10,
+                batch_size=64,
+                lr=0.001,
+                dropout=0.2,
             )
-            grid_search_lgb_24h.fit(X_train_features, df_train_std["close_price_24h"])
-            best_params_lgb_24h = grid_search_lgb_24h.best_params_
-            save_best_params(best_params_lgb_24h, params_file_lgb_24h)
-            print(
-                f"✅ Оптимизация LightGBM (24h) для {currency} завершена и параметры сохранены"
+
+        xgb_models, lgb_models = {}, {}
+        for horizon in ["1h", "24h"]:
+            target = "close_price_1h" if horizon == "1h" else "close_price_24h"
+            print(f"Обучение XGBoost для горизонта {horizon} для {currency}:")
+            best_params = best_params_xgb_1h if horizon == "1h" else best_params_xgb_24h
+            xgb_models[horizon] = train_xgboost_and_lightgbm(
+                df_train_std, params=best_params, framework="xgboost", target=target
             )
-
-        print(f"Обучение LSTM для горизонта 1h для {currency}:")
-        lstm_model_1h = train_lstm(
-            X_train_hourly,
-            y_train_hourly,
-            seq_len=10,
-            epochs=10,
-            batch_size=64,
-            lr=0.001,
-            dropout=0.2,
-        )
-        print(f"Обучение LSTM для горизонта 24h для {currency}:")
-        lstm_model_24h = train_lstm(
-            X_train_4h,
-            y_train_4h,
-            seq_len=10,
-            epochs=10,
-            batch_size=64,
-            lr=0.001,
-            dropout=0.2,
-        )
-        lstm_models = {"1h": lstm_model_1h, "24h": lstm_model_24h}
-
-        print(f"Обучение Transformer для горизонта 1h для {currency}:")
-        transformer_model_1h = train_transformer(
-            X_train_hourly,
-            y_train_hourly,
-            seq_len=10,
-            epochs=10,
-            batch_size=64,
-            lr=0.001,
-            dropout=0.2,
-        )
-        print(f"Обучение Transformer для горизонта 24h для {currency}:")
-        transformer_model_24h = train_transformer(
-            X_train_4h,
-            y_train_4h,
-            seq_len=10,
-            epochs=10,
-            batch_size=64,
-            lr=0.001,
-            dropout=0.2,
-        )
-        transformer_models = {"1h": transformer_model_1h, "24h": transformer_model_24h}
-
-        print(f"Обучение XGBoost для горизонта 1h для {currency}:")
-        model_xgb_1h = train_xgboost_and_lightgbm(
-            df_train_std,
-            params=best_params_xgb_1h,
-            framework="xgboost",
-            target="close_price_1h",
-        )
-        print(f"Обучение XGBoost для горизонта 24h для {currency}:")
-        model_xgb_24h = train_xgboost_and_lightgbm(
-            df_train_std,
-            params=best_params_xgb_24h,
-            framework="xgboost",
-            target="close_price_24h",
-        )
-
-        print(f"Обучение LightGBM для горизонта 1h для {currency}:")
-        model_lgb_1h = train_xgboost_and_lightgbm(
-            df_train_std,
-            params=best_params_lgb_1h,
-            framework="lightgbm",
-            target="close_price_1h",
-        )
-        print(f"Обучение LightGBM для горизонта 24h для {currency}:")
-        model_lgb_24h = train_xgboost_and_lightgbm(
-            df_train_std,
-            params=best_params_lgb_24h,
-            framework="lightgbm",
-            target="close_price_24h",
-        )
+            print(f"Обучение LightGBM для горизонта {horizon} для {currency}:")
+            best_params = best_params_lgb_1h if horizon == "1h" else best_params_lgb_24h
+            lgb_models[horizon] = train_xgboost_and_lightgbm(
+                df_train_std, params=best_params, framework="lightgbm", target=target
+            )
 
         print(f"Обучение Prophet для {currency}:")
         model_prophet = train_prophet(
@@ -416,10 +368,10 @@ def train_and_save_models():
             "lstm_24h": lstm_models["24h"],
             "transformer_1h": transformer_models["1h"],
             "transformer_24h": transformer_models["24h"],
-            "xgboost_1h": model_xgb_1h,
-            "xgboost_24h": model_xgb_24h,
-            "lightgbm_1h": model_lgb_1h,
-            "lightgbm_24h": model_lgb_24h,
+            "xgboost_1h": xgb_models["1h"],
+            "xgboost_24h": xgb_models["24h"],
+            "lightgbm_1h": lgb_models["1h"],
+            "lightgbm_24h": lgb_models["24h"],
             "prophet": model_prophet,
             "arima": model_arima,
         }
@@ -442,142 +394,131 @@ def train_and_save_models():
             X_stack_for_metrics,
             df_train_std[["close_price_1h", "close_price_24h"]],
         )
-        metrics_lstm1h = compute_relative_metrics(
-            lstm_models["1h"], X_train_features, df_train_std["close_price_1h"]
-        )
-        metrics_lstm24h = compute_relative_metrics(
-            lstm_models["24h"], X_train_features, df_train_std["close_price_24h"]
-        )
-        metrics_trans1h = compute_relative_metrics(
-            transformer_models["1h"], X_train_features, df_train_std["close_price_1h"]
-        )
-        metrics_trans24h = compute_relative_metrics(
-            transformer_models["24h"], X_train_features, df_train_std["close_price_24h"]
-        )
-        metrics_xgb1h = compute_relative_metrics(
-            model_xgb_1h,
-            X_train_features,
-            df_train_std["close_price_1h"],
-            model_name="xgboost_1h",
-            raw_data=raw_data,
-        )
-        metrics_xgb24h = compute_relative_metrics(
-            model_xgb_24h,
-            X_train_features,
-            df_train_std["close_price_24h"],
-            model_name="xgboost_24h",
-            raw_data=raw_data,
-        )
-        metrics_lgb1h = compute_relative_metrics(
-            model_lgb_1h,
-            X_train_features,
-            df_train_std["close_price_1h"],
-            model_name="lightgbm_1h",
-            raw_data=raw_data,
-        )
-        metrics_lgb24h = compute_relative_metrics(
-            model_lgb_24h,
-            X_train_features,
-            df_train_std["close_price_24h"],
-            model_name="lightgbm_24h",
-            raw_data=raw_data,
-        )
+        metrics = {}
+        model_metric_pairs = [
+            ("lstm", "1h", lstm_models["1h"], "close_price_1h"),
+            ("lstm", "24h", lstm_models["24h"], "close_price_24h"),
+            ("transformer", "1h", transformer_models["1h"], "close_price_1h"),
+            ("transformer", "24h", transformer_models["24h"], "close_price_24h"),
+            ("xgboost", "1h", xgb_models["1h"], "close_price_1h"),
+            ("xgboost", "24h", xgb_models["24h"], "close_price_24h"),
+            ("lightgbm", "1h", lgb_models["1h"], "close_price_1h"),
+            ("lightgbm", "24h", lgb_models["24h"], "close_price_24h"),
+        ]
+        for model_name, horizon, model, target in model_metric_pairs:
+            if model_name in ["xgboost", "lightgbm"]:
+                metrics[f"{model_name}_{horizon}"] = compute_relative_metrics(
+                    model,
+                    X_train_features,
+                    df_train_std[target],
+                    model_name=f"{model_name}_{horizon}",
+                    raw_data=raw_data,
+                )
+            else:
+                metrics[f"{model_name}_{horizon}"] = compute_relative_metrics(
+                    model, X_train_features, df_train_std[target]
+                )
+
         print(f"\nРезультаты для {currency}:")
         print(f"Stacking: {metrics_stack}")
-        print(f"LSTM 1h: {metrics_lstm1h}")
-        print(f"LSTM 24h: {metrics_lstm24h}")
-        print(f"Transformer 1h: {metrics_trans1h}")
-        print(f"Transformer 24h: {metrics_trans24h}")
-        print(f"XGBoost 1h: {metrics_xgb1h}")
-        print(f"XGBoost 24h: {metrics_xgb24h}")
-        print(f"LightGBM 1h: {metrics_lgb1h}")
-        print(f"LightGBM 24h: {metrics_lgb24h}")
+        for key, value in metrics.items():
+            print(f"{key}: {value}")
 
-        save_model_with_metadata(
-            stacking_model,
-            "stacking",
-            "unified",
-            currency,
-            {"unified": data["unified"]},
-            metrics_stack,
-        )
-        save_model_with_metadata(
-            lstm_models["1h"],
-            "lstm",
-            "1h",
-            currency,
-            {"unified": data["unified"]},
-            metrics_lstm1h,
-        )
-        save_model_with_metadata(
-            lstm_models["24h"],
-            "lstm",
-            "24h",
-            currency,
-            {"unified": data["unified"]},
-            metrics_lstm24h,
-        )
-        save_model_with_metadata(
-            transformer_models["1h"],
-            "transformer",
-            "1h",
-            currency,
-            {"unified": data["unified"]},
-            metrics_trans1h,
-        )
-        save_model_with_metadata(
-            transformer_models["24h"],
-            "transformer",
-            "24h",
-            currency,
-            {"unified": data["unified"]},
-            metrics_trans24h,
-        )
-        save_model_with_metadata(
-            model_xgb_1h,
-            "xgboost",
-            "1h",
-            currency,
-            {"unified": data["unified"]},
-            metrics_xgb1h,
-        )
-        save_model_with_metadata(
-            model_xgb_24h,
-            "xgboost",
-            "24h",
-            currency,
-            {"unified": data["unified"]},
-            metrics_xgb24h,
-        )
-        save_model_with_metadata(
-            model_lgb_1h,
-            "lightgbm",
-            "1h",
-            currency,
-            {"unified": data["unified"]},
-            metrics_lgb1h,
-        )
-        save_model_with_metadata(
-            model_lgb_24h,
-            "lightgbm",
-            "24h",
-            currency,
-            {"unified": data["unified"]},
-            metrics_lgb24h,
-        )
-        save_model_with_metadata(
-            model_prophet,
-            "prophet",
-            currency,
-            currency,
-            {"unified": data["unified"]},
-        )
-        save_model_with_metadata(
-            model_arima,
-            "arima",
-            currency,
-            currency,
-            {"unified": data["unified"]},
-        )
+        models_to_save = [
+            (
+                stacking_model,
+                "stacking",
+                "unified",
+                currency,
+                {"unified": data["unified"]},
+                metrics_stack,
+            ),
+            (
+                lstm_models["1h"],
+                "lstm",
+                "1h",
+                currency,
+                {"unified": data["unified"]},
+                metrics.get("lstm_1h"),
+            ),
+            (
+                lstm_models["24h"],
+                "lstm",
+                "24h",
+                currency,
+                {"unified": data["unified"]},
+                metrics.get("lstm_24h"),
+            ),
+            (
+                transformer_models["1h"],
+                "transformer",
+                "1h",
+                currency,
+                {"unified": data["unified"]},
+                metrics.get("transformer_1h"),
+            ),
+            (
+                transformer_models["24h"],
+                "transformer",
+                "24h",
+                currency,
+                {"unified": data["unified"]},
+                metrics.get("transformer_24h"),
+            ),
+            (
+                xgb_models["1h"],
+                "xgboost",
+                "1h",
+                currency,
+                {"unified": data["unified"]},
+                metrics.get("xgboost_1h"),
+            ),
+            (
+                xgb_models["24h"],
+                "xgboost",
+                "24h",
+                currency,
+                {"unified": data["unified"]},
+                metrics.get("xgboost_24h"),
+            ),
+            (
+                lgb_models["1h"],
+                "lightgbm",
+                "1h",
+                currency,
+                {"unified": data["unified"]},
+                metrics.get("lightgbm_1h"),
+            ),
+            (
+                lgb_models["24h"],
+                "lightgbm",
+                "24h",
+                currency,
+                {"unified": data["unified"]},
+                metrics.get("lightgbm_24h"),
+            ),
+            (
+                model_prophet,
+                "prophet",
+                currency,
+                currency,
+                {"unified": data["unified"]},
+                None,
+            ),
+            (
+                model_arima,
+                "arima",
+                currency,
+                currency,
+                {"unified": data["unified"]},
+                None,
+            ),
+        ]
+        for mdl, mdl_type, horizon, cur, meta, met in models_to_save:
+            if met is not None:
+                save_model_with_metadata(mdl, mdl_type, horizon, cur, meta, met)
+            else:
+                save_model_with_metadata(mdl, mdl_type, horizon, cur, meta)
+
         print(f"✅ Модели для {currency} обучены и сохранены.")
     print("\n✅ Все модели обучены и сохранены для всех криптовалют.")
