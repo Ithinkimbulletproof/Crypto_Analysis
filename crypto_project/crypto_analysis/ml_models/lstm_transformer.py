@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 import pandas as pd
@@ -63,6 +64,9 @@ def train_lstm(
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
+    scheduler = ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=3, verbose=True
+    )
 
     model.train()
     for epoch in range(epochs):
@@ -75,7 +79,11 @@ def train_lstm(
             optimizer.step()
             total_loss += loss.item()
         avg_loss = total_loss / len(dataloader)
-        print(f"LSTM Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}")
+        scheduler.step(avg_loss)
+        current_lr = optimizer.param_groups[0]["lr"]
+        print(
+            f"LSTM Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}, LR: {current_lr:.6f}"
+        )
     return model
 
 
@@ -127,6 +135,9 @@ def train_transformer(
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
+    scheduler = ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=3, verbose=True
+    )
 
     model.train()
     for epoch in range(epochs):
@@ -139,7 +150,11 @@ def train_transformer(
             optimizer.step()
             total_loss += loss.item()
         avg_loss = total_loss / len(dataloader)
-        print(f"Transformer Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}")
+        scheduler.step(avg_loss)
+        current_lr = optimizer.param_groups[0]["lr"]
+        print(
+            f"Transformer Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}, LR: {current_lr:.6f}"
+        )
     return model
 
 

@@ -39,7 +39,7 @@ def train_prophet(series, horizon="24h", forecast_tag=None):
         )
         model.add_seasonality(name="daily", period=1, fourier_order=8)
 
-    model.fit(df, iter=100)
+    model.fit(df, iter=500)
     print("✅ Prophet модель обучена")
     return model
 
@@ -62,11 +62,11 @@ def train_arima(series, horizon="24h", forecast_tag=None):
         m=m,
         trace=False,
         stepwise=True,
-        max_p=2,
-        max_q=2,
-        max_P=1,
-        max_Q=1,
-        max_order=5,
+        max_p=3,
+        max_q=3,
+        max_P=2,
+        max_Q=2,
+        max_order=8,
         error_action="ignore",
         suppress_warnings=True,
     )

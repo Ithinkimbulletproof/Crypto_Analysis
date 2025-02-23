@@ -4,7 +4,7 @@ import json
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from sklearn.model_selection import TimeSeriesSplit, GridSearchCV
+from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
 import xgboost as xgb
 import lightgbm as lgb
 from crypto_analysis.ml_models.lstm_transformer import train_lstm, train_transformer
@@ -204,17 +204,28 @@ def train_and_save_models():
 
     tscv = TimeSeriesSplit(n_splits=5)
     param_grid_xgb = {
-        "n_estimators": [50, 100, 200],
-        "max_depth": [3, 5, 7],
-        "learning_rate": [0.01, 0.1, 0.2],
-        "subsample": [0.7, 1.0],
+        "n_estimators": [300, 350, 400, 450, 500, 550, 600, 650, 700],
+        "max_depth": [7, 8, 9, 10, 11],
+        "learning_rate": [0.005, 0.01, 0.02, 0.03, 0.05],
+        "subsample": [0.7, 0.8, 0.9, 1.0],
+        "colsample_bytree": [0.7, 0.75, 0.8, 0.85, 0.9, 1.0],
+        "gamma": [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3],
+        "min_child_weight": [1, 2, 3, 4, 5],
+        "reg_alpha": [0, 0.005, 0.01, 0.05, 0.1],
+        "reg_lambda": [1, 1.25, 1.5, 1.75, 2],
     }
     param_grid_lgb = {
-        "n_estimators": [50, 100, 200],
-        "max_depth": [5, 10, 15],
-        "learning_rate": [0.01, 0.1, 0.2],
-        "num_leaves": [50, 100, 150],
-        "subsample": [0.7, 1.0],
+        "n_estimators": [300, 350, 400, 450, 500, 550, 600, 650, 700],
+        "max_depth": [15, 17, 20, 23, 25],
+        "learning_rate": [0.005, 0.01, 0.02, 0.03, 0.05],
+        "num_leaves": [150, 170, 190, 210, 230, 250],
+        "subsample": [0.7, 0.8, 0.9, 1.0],
+        "bagging_fraction": [0.7, 0.75, 0.8, 0.85, 0.9, 1.0],
+        "bagging_freq": [0, 5, 10],
+        "feature_fraction": [0.7, 0.75, 0.8, 0.85, 0.9, 1.0],
+        "min_child_samples": [20, 25, 30, 35, 40, 50],
+        "reg_alpha": [0, 0.005, 0.01, 0.05, 0.1],
+        "reg_lambda": [0, 0.005, 0.01, 0.05, 0.1],
     }
     xgb_model = xgb.XGBRegressor(objective="reg:squarederror")
     lgb_model = lgb.LGBMRegressor(
@@ -226,11 +237,17 @@ def train_and_save_models():
             best_params = load_best_params(params_file)
             print(f"✅ Загружены оптимальные параметры для {model_desc} для {currency}")
         else:
-            grid_search = GridSearchCV(
-                model, param_grid, cv=tscv, scoring="neg_mean_squared_error"
+            random_search = RandomizedSearchCV(
+                model,
+                param_grid,
+                cv=tscv,
+                scoring="neg_mean_squared_error",
+                n_jobs=3,
+                n_iter=150,
+                random_state=42,
             )
-            grid_search.fit(X, y)
-            best_params = grid_search.best_params_
+            random_search.fit(X, y)
+            best_params = random_search.best_params_
             save_best_params(best_params, params_file)
             print(
                 f"✅ Оптимизация {model_desc} для {currency} завершена и параметры сохранены"
@@ -323,8 +340,8 @@ def train_and_save_models():
             lstm_models[horizon] = train_lstm(
                 X_train,
                 y_train,
-                seq_len=10,
-                epochs=10,
+                seq_len=15,
+                epochs=100,
                 batch_size=64,
                 lr=0.001,
                 dropout=0.2,
@@ -333,8 +350,8 @@ def train_and_save_models():
             transformer_models[horizon] = train_transformer(
                 X_train,
                 y_train,
-                seq_len=10,
-                epochs=10,
+                seq_len=15,
+                epochs=100,
                 batch_size=64,
                 lr=0.001,
                 dropout=0.2,
@@ -382,7 +399,7 @@ def train_and_save_models():
             X_train_features,
             df_train_std[["close_price_1h", "close_price_24h"]],
             raw_data=raw_data,
-            epochs=10,
+            epochs=100,
             lr=0.01,
         )
 
