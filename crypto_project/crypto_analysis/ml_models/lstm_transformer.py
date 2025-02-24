@@ -66,9 +66,7 @@ def train_lstm(
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=3, verbose=True
-    )
+    scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
 
     model.train()
     for epoch in range(epochs):
@@ -82,7 +80,7 @@ def train_lstm(
             total_loss += loss.item()
         avg_loss = total_loss / len(dataloader)
         scheduler.step(avg_loss)
-        current_lr = optimizer.param_groups[0]["lr"]
+        current_lr = scheduler.get_last_lr()[0]
         print(
             f"LSTM Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}, LR: {current_lr:.6f}"
         )
@@ -140,9 +138,7 @@ def train_transformer(
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=3, verbose=True
-    )
+    scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
 
     model.train()
     for epoch in range(epochs):
@@ -156,7 +152,7 @@ def train_transformer(
             total_loss += loss.item()
         avg_loss = total_loss / len(dataloader)
         scheduler.step(avg_loss)
-        current_lr = optimizer.param_groups[0]["lr"]
+        current_lr = scheduler.get_last_lr()[0]
         print(
             f"Transformer Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}, LR: {current_lr:.6f}"
         )

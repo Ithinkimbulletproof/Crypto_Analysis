@@ -340,21 +340,28 @@ def train_and_save_models():
             lstm_models[horizon] = train_lstm(
                 X_train,
                 y_train,
-                seq_len=15,
+                seq_len=25,
                 epochs=100,
                 batch_size=64,
                 lr=0.001,
                 dropout=0.2,
+                impute_method="ffill",
+                hidden_size=96,
+                num_layers=3,
             )
             print(f"Обучение Transformer для горизонта {horizon} для {currency}:")
             transformer_models[horizon] = train_transformer(
                 X_train,
                 y_train,
                 seq_len=15,
-                epochs=100,
+                epochs=50,
                 batch_size=64,
                 lr=0.001,
                 dropout=0.2,
+                impute_method="ffill",
+                d_model=64,
+                num_layers=2,
+                nhead=4,
             )
 
         xgb_models, lgb_models = {}, {}
@@ -363,12 +370,12 @@ def train_and_save_models():
             print(f"Обучение XGBoost для горизонта {horizon} для {currency}:")
             best_params = best_params_xgb_1h if horizon == "1h" else best_params_xgb_24h
             xgb_models[horizon] = train_xgboost_and_lightgbm(
-                df_train_std, params=best_params, framework="xgboost", target=target
+                df_train_std, params=best_params, framework="xgb", target=target
             )
             print(f"Обучение LightGBM для горизонта {horizon} для {currency}:")
             best_params = best_params_lgb_1h if horizon == "1h" else best_params_lgb_24h
             lgb_models[horizon] = train_xgboost_and_lightgbm(
-                df_train_std, params=best_params, framework="lightgbm", target=target
+                df_train_std, params=best_params, framework="lgb", target=target
             )
 
         print(f"Обучение Prophet для {currency}:")
