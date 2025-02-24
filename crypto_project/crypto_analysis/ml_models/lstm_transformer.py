@@ -23,7 +23,7 @@ def create_sequences(X, y, seq_len):
 
 
 class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_size=64, num_layers=2, dropout=0.2):
+    def __init__(self, input_size, hidden_size, num_layers, dropout):
         super(LSTMModel, self).__init__()
         self.lstm = nn.LSTM(
             input_size, hidden_size, num_layers, dropout=dropout, batch_first=True
@@ -39,12 +39,14 @@ class LSTMModel(nn.Module):
 def train_lstm(
     X_train,
     y_train,
-    seq_len=10,
-    epochs=20,
-    batch_size=64,
-    lr=0.001,
-    dropout=0.2,
-    impute_method="ffill",
+    seq_len,
+    epochs,
+    batch_size,
+    lr,
+    dropout,
+    impute_method,
+    hidden_size,
+    num_layers,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -60,7 +62,7 @@ def train_lstm(
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     input_size = X_train.shape[1]
-    model = LSTMModel(input_size=input_size, dropout=dropout).to(device)
+    model = LSTMModel(input_size, hidden_size, num_layers, dropout).to(device)
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -88,7 +90,7 @@ def train_lstm(
 
 
 class TransformerModel(nn.Module):
-    def __init__(self, input_size, d_model=64, num_layers=2, nhead=4, dropout=0.2):
+    def __init__(self, input_size, d_model, num_layers, nhead, dropout):
         super(TransformerModel, self).__init__()
         self.encoder = nn.Linear(input_size, d_model)
         encoder_layer = nn.TransformerEncoderLayer(
@@ -110,12 +112,15 @@ class TransformerModel(nn.Module):
 def train_transformer(
     X_train,
     y_train,
-    seq_len=10,
-    epochs=10,
-    batch_size=64,
-    lr=0.001,
-    dropout=0.2,
-    impute_method="ffill",
+    seq_len,
+    epochs,
+    batch_size,
+    lr,
+    dropout,
+    impute_method,
+    d_model,
+    num_layers,
+    nhead,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -131,7 +136,7 @@ def train_transformer(
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     input_size = X_train.shape[1]
-    model = TransformerModel(input_size=input_size, dropout=dropout).to(device)
+    model = TransformerModel(input_size, d_model, num_layers, nhead, dropout).to(device)
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -156,37 +161,3 @@ def train_transformer(
             f"Transformer Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}, LR: {current_lr:.6f}"
         )
     return model
-
-
-def train_lstm_dual(X_train, y_train, seq_len=10, **kwargs):
-    shift_1h = 1
-    shift_24h = 6
-
-    y_train_1h = y_train.shift(-shift_1h).iloc[:-shift_1h]
-    X_train_1h = X_train.iloc[:-shift_1h]
-    print("Обучение LSTM для горизонта 1h:")
-    model_1h = train_lstm(X_train_1h, y_train_1h, seq_len=seq_len, **kwargs)
-
-    y_train_24h = y_train.shift(-shift_24h).iloc[:-shift_24h]
-    X_train_24h = X_train.iloc[:-shift_24h]
-    print("Обучение LSTM для горизонта 24h:")
-    model_24h = train_lstm(X_train_24h, y_train_24h, seq_len=seq_len, **kwargs)
-
-    return {"1h": model_1h, "24h": model_24h}
-
-
-def train_transformer_dual(X_train, y_train, seq_len=10, **kwargs):
-    shift_1h = 1
-    shift_24h = 6
-
-    y_train_1h = y_train.shift(-shift_1h).iloc[:-shift_1h]
-    X_train_1h = X_train.iloc[:-shift_1h]
-    print("Обучение Transformer для горизонта 1h:")
-    model_1h = train_transformer(X_train_1h, y_train_1h, seq_len=seq_len, **kwargs)
-
-    y_train_24h = y_train.shift(-shift_24h).iloc[:-shift_24h]
-    X_train_24h = X_train.iloc[:-shift_24h]
-    print("Обучение Transformer для горизонта 24h:")
-    model_24h = train_transformer(X_train_24h, y_train_24h, seq_len=seq_len, **kwargs)
-
-    return {"1h": model_1h, "24h": model_24h}

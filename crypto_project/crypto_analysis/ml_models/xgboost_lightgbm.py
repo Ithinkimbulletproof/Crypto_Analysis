@@ -31,36 +31,20 @@ def prepare_features(df):
     return df
 
 
-def train_model(X, y, model_type="xgb", params=None, random_state=42):
+def train_model(X, y, model_type, params):
+    if not params:
+        raise ValueError("Параметры модели должны быть переданы извне.")
+
     split_index = int(len(X) * 0.8)
     X_train, X_val = X.iloc[:split_index], X.iloc[split_index:]
     y_train, y_val = y.iloc[:split_index], y.iloc[split_index:]
 
-    if params is None:
-        params = {}
-
     if model_type.lower() == "xgb":
-        default_params = {
-            "objective": "reg:squarederror",
-            "n_estimators": 200,
-            "learning_rate": 0.05,
-            "max_depth": 6,
-            "random_state": random_state,
-        }
-        default_params.update(params)
-        model = xgb.XGBRegressor(**default_params)
+        model = xgb.XGBRegressor(**params)
     elif model_type.lower() == "lgb":
-        default_params = {
-            "n_estimators": 200,
-            "learning_rate": 0.05,
-            "max_depth": 6,
-            "num_leaves": 64,
-            "random_state": random_state,
-        }
-        default_params.update(params)
-        model = lgb.LGBMRegressor(**default_params)
+        model = lgb.LGBMRegressor(**params)
     else:
-        raise ValueError("model_type must be either 'xgb' or 'lgb'")
+        raise ValueError("model_type должен быть 'xgb' или 'lgb'")
 
     model.fit(X_train, y_train)
     y_pred = model.predict(X_val)
@@ -69,7 +53,7 @@ def train_model(X, y, model_type="xgb", params=None, random_state=42):
     return model
 
 
-def train_xgboost_and_lightgbm(df, params=None, framework=None, target=None):
+def train_xgboost_and_lightgbm(df, params, framework, target):
     df_prepared = prepare_features(df)
 
     df_prepared["price_1h"] = df_prepared["lag_1h"]
@@ -77,54 +61,20 @@ def train_xgboost_and_lightgbm(df, params=None, framework=None, target=None):
 
     X = df_prepared.drop(columns=["close_price", "price_1h", "price_24h"])
 
-    if target is not None:
+    if target:
         y = df_prepared[target]
         horizon = "1 час" if target == "price_1h" else "24 часа"
-        if framework == "xgboost":
-            print(f"Обучение XGBoost для предсказания цены через {horizon}:")
-            model = train_model(X, y, model_type="xgb", params=params)
-            return model
-        elif framework == "lightgbm":
-            print(f"Обучение LightGBM для предсказания цены через {horizon}:")
-            model = train_model(X, y, model_type="lgb", params=params)
-            return model
-        else:
-            print(f"Обучение XGBoost для предсказания цены через {horizon}:")
-            model = train_model(X, y, model_type="xgb", params=params)
-            return model
-    else:
-        y_1h = df_prepared["price_1h"]
-        y_24h = df_prepared["price_24h"]
-        if framework == "xgboost":
-            print("Обучение XGBoost для предсказания цены через 1 час:")
-            model_1h = train_model(X, y_1h, model_type="xgb", params=params)
-            print("Обучение XGBoost для предсказания цены через 24 часа:")
-            model_24h = train_model(X, y_24h, model_type="xgb", params=params)
-            return {
-                "xgb_1h": model_1h,
-                "xgb_24h": model_24h,
-            }
-        elif framework == "lightgbm":
-            print("Обучение LightGBM для предсказания цены через 1 час:")
-            model_1h = train_model(X, y_1h, model_type="lgb", params=params)
-            print("Обучение LightGBM для предсказания цены через 24 часа:")
-            model_24h = train_model(X, y_24h, model_type="lgb", params=params)
-            return {
-                "lgb_1h": model_1h,
-                "lgb_24h": model_24h,
-            }
-        else:
-            print("Обучение XGBoost для предсказания цены через 1 час:")
-            model_xgb_1h = train_model(X, y_1h, model_type="xgb", params=params)
-            print("Обучение XGBoost для предсказания цены через 24 часа:")
-            model_xgb_24h = train_model(X, y_24h, model_type="xgb", params=params)
-            print("Обучение LightGBM для предсказания цены через 1 час:")
-            model_lgb_1h = train_model(X, y_1h, model_type="lgb", params=params)
-            print("Обучение LightGBM для предсказания цены через 24 часа:")
-            model_lgb_24h = train_model(X, y_24h, model_type="lgb", params=params)
-            return {
-                "xgb_1h": model_xgb_1h,
-                "xgb_24h": model_xgb_24h,
-                "lgb_1h": model_lgb_1h,
-                "lgb_24h": model_lgb_24h,
-            }
+        print(f"Обучение {framework.upper()} для предсказания цены через {horizon}:")
+        return train_model(X, y, model_type=framework, params=params)
+
+    y_1h = df_prepared["price_1h"]
+    y_24h = df_prepared["price_24h"]
+    models = {}
+
+    for timeframe, y in [("1h", y_1h), ("24h", y_24h)]:
+        print(f"Обучение {framework.upper()} для предсказания цены через {timeframe}:")
+        models[f"{framework}_{timeframe}"] = train_model(
+            X, y, model_type=framework, params=params
+        )
+
+    return models
