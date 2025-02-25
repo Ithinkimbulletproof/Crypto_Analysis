@@ -7,7 +7,10 @@ from datetime import datetime
 from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
 import xgboost as xgb
 import lightgbm as lgb
-from crypto_analysis.ml_models.lstm_transformer import train_lstm, train_transformer
+from crypto_analysis.ml_models.gru_transformer import (
+    train_gru_attention,
+    train_transformer,
+)
 from crypto_analysis.ml_models.xgboost_lightgbm import train_xgboost_and_lightgbm
 from crypto_analysis.ml_models.prophet_arima import train_prophet, train_arima
 from crypto_analysis.ml_models.stacking import train_stacking, get_model_predictions
@@ -330,14 +333,14 @@ def train_and_save_models():
             "LightGBM (24h)",
         )
 
-        lstm_models = {}
+        gru_models = {}
         transformer_models = {}
         for horizon, (X_train, y_train) in {
             "1h": (X_train_hourly, y_train_hourly),
             "24h": (X_train_4h, y_train_4h),
         }.items():
-            print(f"Обучение LSTM для горизонта {horizon} для {currency}:")
-            lstm_models[horizon] = train_lstm(
+            print(f"Обучение GRU для горизонта {horizon} для {currency}:")
+            gru_models[horizon] = train_gru_attention(
                 X_train,
                 y_train,
                 seq_len=25,
@@ -388,8 +391,8 @@ def train_and_save_models():
         )
 
         base_models = {
-            "lstm_1h": lstm_models["1h"],
-            "lstm_24h": lstm_models["24h"],
+            "gru_1h": gru_models["1h"],
+            "gru_24h": gru_models["24h"],
             "transformer_1h": transformer_models["1h"],
             "transformer_24h": transformer_models["24h"],
             "xgboost_1h": xgb_models["1h"],
@@ -420,8 +423,8 @@ def train_and_save_models():
         )
         metrics = {}
         model_metric_pairs = [
-            ("lstm", "1h", lstm_models["1h"], "close_price_1h"),
-            ("lstm", "24h", lstm_models["24h"], "close_price_24h"),
+            ("gru", "1h", gru_models["1h"], "close_price_1h"),
+            ("gru", "24h", gru_models["24h"], "close_price_24h"),
             ("transformer", "1h", transformer_models["1h"], "close_price_1h"),
             ("transformer", "24h", transformer_models["24h"], "close_price_24h"),
             ("xgboost", "1h", xgb_models["1h"], "close_price_1h"),
@@ -458,20 +461,20 @@ def train_and_save_models():
                 metrics_stack,
             ),
             (
-                lstm_models["1h"],
-                "lstm",
+                gru_models["1h"],
+                "gru",
                 "1h",
                 currency,
                 {"unified": data["unified"]},
-                metrics.get("lstm_1h"),
+                metrics.get("gru_1h"),
             ),
             (
-                lstm_models["24h"],
-                "lstm",
+                gru_models["24h"],
+                "gru",
                 "24h",
                 currency,
                 {"unified": data["unified"]},
-                metrics.get("lstm_24h"),
+                metrics.get("gru_24h"),
             ),
             (
                 transformer_models["1h"],

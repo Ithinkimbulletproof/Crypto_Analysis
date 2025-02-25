@@ -20,8 +20,8 @@ def run_predictions():
         features_list = json.load(f)
 
     stacking_model = joblib.load("models/stacking_unified.pkl")
-    lstm_model_1h = joblib.load("models/lstm_1h.pkl")
-    lstm_model_24h = joblib.load("models/lstm_24h.pkl")
+    gru_model_1h = joblib.load("models/gru_1h.pkl")
+    gru_model_24h = joblib.load("models/gru_24h.pkl")
     transformer_model_1h = joblib.load("models/transformer_1h.pkl")
     transformer_model_24h = joblib.load("models/transformer_24h.pkl")
     xgboost_model_1h = joblib.load("models/xgboost_1h.pkl")
@@ -32,8 +32,8 @@ def run_predictions():
     arima_model = joblib.load("models/arima_unified.pkl")
 
     models = {
-        "lstm_1h": lstm_model_1h,
-        "lstm_24h": lstm_model_24h,
+        "gru_1h": gru_model_1h,
+        "gru_24h": gru_model_24h,
         "transformer_1h": transformer_model_1h,
         "transformer_24h": transformer_model_24h,
         "xgboost_1h": xgboost_model_1h,

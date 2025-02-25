@@ -22,21 +22,25 @@ def create_sequences(X, y, seq_len):
     return np.array(X_seq, dtype=np.float32), np.array(y_seq, dtype=np.float32)
 
 
-class LSTMModel(nn.Module):
+class GRUAttentionModel(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, dropout):
-        super(LSTMModel, self).__init__()
-        self.lstm = nn.LSTM(
+        super(GRUAttentionModel, self).__init__()
+        self.gru = nn.GRU(
             input_size, hidden_size, num_layers, dropout=dropout, batch_first=True
         )
+        self.attention = nn.Linear(hidden_size, 1)
         self.fc = nn.Linear(hidden_size, 1)
 
     def forward(self, x):
-        out, _ = self.lstm(x)
-        out = self.fc(out[:, -1, :])
+        gru_out, _ = self.gru(x)
+        attn_scores = self.attention(gru_out)
+        attn_weights = torch.softmax(attn_scores, dim=1)
+        context = torch.sum(attn_weights * gru_out, dim=1)
+        out = self.fc(context)
         return out
 
 
-def train_lstm(
+def train_gru_attention(
     X_train,
     y_train,
     seq_len,
@@ -62,7 +66,7 @@ def train_lstm(
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     input_size = X_train.shape[1]
-    model = LSTMModel(input_size, hidden_size, num_layers, dropout).to(device)
+    model = GRUAttentionModel(input_size, hidden_size, num_layers, dropout).to(device)
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -82,7 +86,7 @@ def train_lstm(
         scheduler.step(avg_loss)
         current_lr = scheduler.get_last_lr()[0]
         print(
-            f"LSTM Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}, LR: {current_lr:.6f}"
+            f"GRU_Attention Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}, LR: {current_lr:.6f}"
         )
     return model
 
