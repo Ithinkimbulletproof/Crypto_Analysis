@@ -4,6 +4,7 @@ import json
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from dotenv import load_dotenv
 from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
 import xgboost as xgb
 import lightgbm as lgb
@@ -200,12 +201,23 @@ def get_stacking_input(base_models, X, raw_data=None):
 
 
 def train_and_save_models():
+    load_dotenv()
+
     print("Начинаю обновление моделей для каждой криптовалюты...")
     data_by_currency = load_and_preprocess_data_by_currency()
     if not data_by_currency:
         raise ValueError("Нет данных для обработки по криптовалютам.")
 
+    cryptopairs = os.getenv("CRYPTOPAIRS")
+    if cryptopairs:
+        pairs_list = [pair.strip().replace("/", "_") for pair in cryptopairs.split(",")]
+        data_by_currency = {cur: data for cur, data in data_by_currency.items() if cur in pairs_list}
+        print(f"✅ Будут обучаться модели только для пар: {pairs_list}")
+    else:
+        print("✅ Переменная CRYPTOPAIRS не установлена – будут обучаться модели для всех криптовалют.")
+
     tscv = TimeSeriesSplit(n_splits=5)
+
     param_grid_xgb = {
         "n_estimators": [300, 350, 400, 450, 500, 550, 600, 650, 700],
         "max_depth": [7, 8, 9, 10, 11],
@@ -217,6 +229,7 @@ def train_and_save_models():
         "reg_alpha": [0, 0.005, 0.01, 0.05, 0.1],
         "reg_lambda": [1, 1.25, 1.5, 1.75, 2],
     }
+
     param_grid_lgb = {
         "n_estimators": [300, 350, 400, 450, 500, 550, 600, 650, 700],
         "max_depth": [15, 17, 20, 23, 25],
@@ -230,10 +243,9 @@ def train_and_save_models():
         "reg_alpha": [0, 0.005, 0.01, 0.05, 0.1],
         "reg_lambda": [0, 0.005, 0.01, 0.05, 0.1],
     }
+
     xgb_model = xgb.XGBRegressor(objective="reg:squarederror")
-    lgb_model = lgb.LGBMRegressor(
-        objective="regression", force_col_wise=True, verbose=-1
-    )
+    lgb_model = lgb.LGBMRegressor(objective="regression", force_col_wise=True, verbose=-1)
 
     def get_best_params(model, param_grid, X, y, params_file, model_desc):
         if os.path.exists(params_file):
@@ -344,10 +356,10 @@ def train_and_save_models():
                 X_train,
                 y_train,
                 seq_len=25,
-                epochs=100,
-                batch_size=64,
-                lr=0.001,
-                dropout=0.2,
+                epochs=50,
+                batch_size=32,
+                lr=0.005,
+                dropout=0.1,
                 impute_method="ffill",
                 hidden_size=96,
                 num_layers=3,
@@ -357,7 +369,7 @@ def train_and_save_models():
                 X_train,
                 y_train,
                 seq_len=15,
-                epochs=50,
+                epochs=33,
                 batch_size=64,
                 lr=0.001,
                 dropout=0.2,
@@ -451,101 +463,23 @@ def train_and_save_models():
         for key, value in metrics.items():
             print(f"{key}: {value}")
 
-        models_to_save = [
-            (
-                stacking_model,
-                "stacking",
-                "unified",
-                currency,
-                {"unified": data["unified"]},
-                metrics_stack,
-            ),
-            (
-                gru_models["1h"],
-                "gru",
-                "1h",
-                currency,
-                {"unified": data["unified"]},
-                metrics.get("gru_1h"),
-            ),
-            (
-                gru_models["24h"],
-                "gru",
-                "24h",
-                currency,
-                {"unified": data["unified"]},
-                metrics.get("gru_24h"),
-            ),
-            (
-                transformer_models["1h"],
-                "transformer",
-                "1h",
-                currency,
-                {"unified": data["unified"]},
-                metrics.get("transformer_1h"),
-            ),
-            (
-                transformer_models["24h"],
-                "transformer",
-                "24h",
-                currency,
-                {"unified": data["unified"]},
-                metrics.get("transformer_24h"),
-            ),
-            (
-                xgb_models["1h"],
-                "xgboost",
-                "1h",
-                currency,
-                {"unified": data["unified"]},
-                metrics.get("xgboost_1h"),
-            ),
-            (
-                xgb_models["24h"],
-                "xgboost",
-                "24h",
-                currency,
-                {"unified": data["unified"]},
-                metrics.get("xgboost_24h"),
-            ),
-            (
-                lgb_models["1h"],
-                "lightgbm",
-                "1h",
-                currency,
-                {"unified": data["unified"]},
-                metrics.get("lightgbm_1h"),
-            ),
-            (
-                lgb_models["24h"],
-                "lightgbm",
-                "24h",
-                currency,
-                {"unified": data["unified"]},
-                metrics.get("lightgbm_24h"),
-            ),
-            (
-                model_prophet,
-                "prophet",
-                currency,
-                currency,
-                {"unified": data["unified"]},
-                None,
-            ),
-            (
-                model_arima,
-                "arima",
-                currency,
-                currency,
-                {"unified": data["unified"]},
-                None,
-            ),
-        ]
-        for mdl, mdl_type, horizon, cur, meta, met in models_to_save:
-            if met is not None:
-                save_model_with_metadata(mdl, mdl_type, horizon, cur, meta, met)
-            else:
-                save_model_with_metadata(mdl, mdl_type, horizon, cur, meta)
+            common_meta = {"unified": data["unified"]}
+            models_to_save = [
+                (stacking_model, "stacking", "unified", currency, metrics_stack),
+                (gru_models["1h"], "gru", "1h", currency, metrics.get("gru_1h")),
+                (gru_models["24h"], "gru", "24h", currency, metrics.get("gru_24h")),
+                (transformer_models["1h"], "transformer", "1h", currency, metrics.get("transformer_1h")),
+                (transformer_models["24h"], "transformer", "24h", currency, metrics.get("transformer_24h")),
+                (xgb_models["1h"], "xgboost", "1h", currency, metrics.get("xgboost_1h")),
+                (xgb_models["24h"], "xgboost", "24h", currency, metrics.get("xgboost_24h")),
+                (lgb_models["1h"], "lightgbm", "1h", currency, metrics.get("lightgbm_1h")),
+                (lgb_models["24h"], "lightgbm", "24h", currency, metrics.get("lightgbm_24h")),
+                (model_prophet, "prophet", currency, currency, None),
+                (model_arima, "arima", currency, currency, None),
+            ]
+
+            for mdl, mdl_type, horizon, cur, met in models_to_save:
+                save_model_with_metadata(mdl, mdl_type, horizon, cur, common_meta, met)
 
         print(f"✅ Модели для {currency} обучены и сохранены.")
     print("\n✅ Все модели обучены и сохранены для всех криптовалют.")

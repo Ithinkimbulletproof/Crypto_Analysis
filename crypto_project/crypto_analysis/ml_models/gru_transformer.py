@@ -80,6 +80,7 @@ def train_gru_attention(
             outputs = model(X_batch)
             loss = criterion(outputs, y_batch)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
             total_loss += loss.item()
         avg_loss = total_loss / len(dataloader)
