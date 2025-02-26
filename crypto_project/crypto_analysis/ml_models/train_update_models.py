@@ -5,7 +5,11 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from dotenv import load_dotenv
-from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
+from sklearn.model_selection import (
+    TimeSeriesSplit,
+    RandomizedSearchCV,
+    train_test_split,
+)
 import xgboost as xgb
 import lightgbm as lgb
 from crypto_analysis.ml_models.gru_transformer import (
@@ -202,7 +206,6 @@ def get_stacking_input(base_models, X, raw_data=None):
 
 def train_and_save_models():
     load_dotenv()
-
     print("Начинаю обновление моделей для каждой криптовалюты...")
     data_by_currency = load_and_preprocess_data_by_currency()
     if not data_by_currency:
@@ -211,41 +214,44 @@ def train_and_save_models():
     cryptopairs = os.getenv("CRYPTOPAIRS")
     if cryptopairs:
         pairs_list = [pair.strip().replace("/", "_") for pair in cryptopairs.split(",")]
-        data_by_currency = {cur: data for cur, data in data_by_currency.items() if cur in pairs_list}
+        data_by_currency = {
+            cur: data for cur, data in data_by_currency.items() if cur in pairs_list
+        }
         print(f"✅ Будут обучаться модели только для пар: {pairs_list}")
     else:
-        print("✅ Переменная CRYPTOPAIRS не установлена – будут обучаться модели для всех криптовалют.")
+        print(
+            "✅ Переменная CRYPTOPAIRS не установлена – будут обучаться модели для всех криптовалют."
+        )
 
-    tscv = TimeSeriesSplit(n_splits=5)
-
+    tscv = TimeSeriesSplit(n_splits=10)
     param_grid_xgb = {
-        "n_estimators": [300, 350, 400, 450, 500, 550, 600, 650, 700],
-        "max_depth": [7, 8, 9, 10, 11],
-        "learning_rate": [0.005, 0.01, 0.02, 0.03, 0.05],
-        "subsample": [0.7, 0.8, 0.9, 1.0],
-        "colsample_bytree": [0.7, 0.75, 0.8, 0.85, 0.9, 1.0],
-        "gamma": [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3],
-        "min_child_weight": [1, 2, 3, 4, 5],
-        "reg_alpha": [0, 0.005, 0.01, 0.05, 0.1],
-        "reg_lambda": [1, 1.25, 1.5, 1.75, 2],
+        "n_estimators": [300, 350, 400, 450, 500, 550, 600, 650, 700, 750],
+        "max_depth": [5, 6, 7, 8, 9, 10, 11, 12],
+        "learning_rate": [0.001, 0.005, 0.01, 0.02, 0.03, 0.05, 0.1],
+        "subsample": [0.6, 0.7, 0.8, 0.9, 1.0],
+        "colsample_bytree": [0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 1.0],
+        "gamma": [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.5],
+        "min_child_weight": [1, 2, 3, 4, 5, 6],
+        "reg_alpha": [0, 0.001, 0.005, 0.01, 0.05, 0.1],
+        "reg_lambda": [0.5, 1, 1.25, 1.5, 1.75, 2],
     }
-
     param_grid_lgb = {
-        "n_estimators": [300, 350, 400, 450, 500, 550, 600, 650, 700],
-        "max_depth": [15, 17, 20, 23, 25],
-        "learning_rate": [0.005, 0.01, 0.02, 0.03, 0.05],
-        "num_leaves": [150, 170, 190, 210, 230, 250],
-        "subsample": [0.7, 0.8, 0.9, 1.0],
-        "bagging_fraction": [0.7, 0.75, 0.8, 0.85, 0.9, 1.0],
-        "bagging_freq": [0, 5, 10],
-        "feature_fraction": [0.7, 0.75, 0.8, 0.85, 0.9, 1.0],
-        "min_child_samples": [20, 25, 30, 35, 40, 50],
-        "reg_alpha": [0, 0.005, 0.01, 0.05, 0.1],
-        "reg_lambda": [0, 0.005, 0.01, 0.05, 0.1],
+        "n_estimators": [300, 350, 400, 450, 500, 550, 600, 650, 700, 750],
+        "max_depth": [10, 15, 17, 20, 23, 25, 30],
+        "learning_rate": [0.001, 0.005, 0.01, 0.02, 0.03, 0.05, 0.1],
+        "num_leaves": [100, 150, 170, 190, 210, 230, 250, 300],
+        "subsample": [0.6, 0.7, 0.8, 0.9, 1.0],
+        "bagging_fraction": [0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 1.0],
+        "bagging_freq": [0, 5, 10, 15],
+        "feature_fraction": [0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 1.0],
+        "min_child_samples": [10, 20, 25, 30, 35, 40, 50],
+        "reg_alpha": [0, 0.001, 0.005, 0.01, 0.05, 0.1],
+        "reg_lambda": [0, 0.001, 0.005, 0.01, 0.05, 0.1],
     }
-
     xgb_model = xgb.XGBRegressor(objective="reg:squarederror")
-    lgb_model = lgb.LGBMRegressor(objective="regression", force_col_wise=True, verbose=-1)
+    lgb_model = lgb.LGBMRegressor(
+        objective="regression", force_col_wise=True, verbose=-1
+    )
 
     def get_best_params(model, param_grid, X, y, params_file, model_desc):
         if os.path.exists(params_file):
@@ -258,7 +264,7 @@ def train_and_save_models():
                 cv=tscv,
                 scoring="neg_mean_squared_error",
                 n_jobs=3,
-                n_iter=150,
+                n_iter=250,
                 random_state=42,
             )
             random_search.fit(X, y)
@@ -299,64 +305,52 @@ def train_and_save_models():
         X_train_hourly = X_train_hourly[common_features]
         X_train_4h = X_train_4h[common_features]
 
-        params_file_xgb_1h = os.path.join(
-            MODEL_DIR, f"best_params_xgb_1h_{currency}.json"
-        )
-        best_params_xgb_1h = get_best_params(
-            xgb_model,
-            param_grid_xgb,
-            X_train_features,
-            df_train_std["close_price_1h"],
-            params_file_xgb_1h,
-            "XGBoost (1h)",
-        )
-        params_file_xgb_24h = os.path.join(
-            MODEL_DIR, f"best_params_xgb_24h_{currency}.json"
-        )
-        best_params_xgb_24h = get_best_params(
-            xgb_model,
-            param_grid_xgb,
-            X_train_features,
-            df_train_std["close_price_24h"],
-            params_file_xgb_24h,
-            "XGBoost (24h)",
-        )
+        best_params_xgb = {}
+        best_params_lgb = {}
+        for horizon, target_col in [
+            ("1h", "close_price_1h"),
+            ("24h", "close_price_24h"),
+        ]:
+            params_file_xgb = os.path.join(
+                MODEL_DIR, f"best_params_xgb_{horizon}_{currency}.json"
+            )
+            best_params_xgb[horizon] = get_best_params(
+                xgb_model,
+                param_grid_xgb,
+                X_train_features,
+                df_train_std[target_col],
+                params_file_xgb,
+                f"XGBoost ({horizon})",
+            )
+            params_file_lgb = os.path.join(
+                MODEL_DIR, f"best_params_lgb_{horizon}_{currency}.json"
+            )
+            best_params_lgb[horizon] = get_best_params(
+                lgb_model,
+                param_grid_lgb,
+                X_train_features,
+                df_train_std[target_col],
+                params_file_lgb,
+                f"LightGBM ({horizon})",
+            )
 
-        params_file_lgb_1h = os.path.join(
-            MODEL_DIR, f"best_params_lgb_1h_{currency}.json"
-        )
-        best_params_lgb_1h = get_best_params(
-            lgb_model,
-            param_grid_lgb,
-            X_train_features,
-            df_train_std["close_price_1h"],
-            params_file_lgb_1h,
-            "LightGBM (1h)",
-        )
-        params_file_lgb_24h = os.path.join(
-            MODEL_DIR, f"best_params_lgb_24h_{currency}.json"
-        )
-        best_params_lgb_24h = get_best_params(
-            lgb_model,
-            param_grid_lgb,
-            X_train_features,
-            df_train_std["close_price_24h"],
-            params_file_lgb_24h,
-            "LightGBM (24h)",
-        )
-
-        gru_models = {}
-        transformer_models = {}
+        gru_models, transformer_models = {}, {}
         for horizon, (X_train, y_train) in {
             "1h": (X_train_hourly, y_train_hourly),
             "24h": (X_train_4h, y_train_4h),
         }.items():
+            split_index = int(0.8 * len(X_train))
+            X_tr, X_val = X_train.iloc[:split_index], X_train.iloc[split_index:]
+            y_tr, y_val = y_train.iloc[:split_index], y_train.iloc[split_index:]
+
             print(f"Обучение GRU для горизонта {horizon} для {currency}:")
             gru_models[horizon] = train_gru_attention(
-                X_train,
-                y_train,
+                X_tr,
+                y_tr,
+                validation_data=(X_val, y_val),
+                early_stopping_rounds=20,
                 seq_len=25,
-                epochs=50,
+                epochs=200,
                 batch_size=32,
                 lr=0.005,
                 dropout=0.1,
@@ -366,12 +360,14 @@ def train_and_save_models():
             )
             print(f"Обучение Transformer для горизонта {horizon} для {currency}:")
             transformer_models[horizon] = train_transformer(
-                X_train,
-                y_train,
+                X_tr,
+                y_tr,
+                validation_data=(X_val, y_val),
+                early_stopping_rounds=20,
                 seq_len=15,
-                epochs=33,
+                epochs=200,
                 batch_size=64,
-                lr=0.001,
+                lr=0.005,
                 dropout=0.2,
                 impute_method="ffill",
                 d_model=64,
@@ -380,17 +376,23 @@ def train_and_save_models():
             )
 
         xgb_models, lgb_models = {}, {}
-        for horizon in ["1h", "24h"]:
-            target = "close_price_1h" if horizon == "1h" else "close_price_24h"
+        for horizon, target_col in [
+            ("1h", "close_price_1h"),
+            ("24h", "close_price_24h"),
+        ]:
             print(f"Обучение XGBoost для горизонта {horizon} для {currency}:")
-            best_params = best_params_xgb_1h if horizon == "1h" else best_params_xgb_24h
             xgb_models[horizon] = train_xgboost_and_lightgbm(
-                df_train_std, params=best_params, framework="xgb", target=target
+                df_train_std,
+                params=best_params_xgb[horizon],
+                framework="xgb",
+                target=target_col,
             )
             print(f"Обучение LightGBM для горизонта {horizon} для {currency}:")
-            best_params = best_params_lgb_1h if horizon == "1h" else best_params_lgb_24h
             lgb_models[horizon] = train_xgboost_and_lightgbm(
-                df_train_std, params=best_params, framework="lgb", target=target
+                df_train_std,
+                params=best_params_lgb[horizon],
+                framework="lgb",
+                target=target_col,
             )
 
         print(f"Обучение Prophet для {currency}:")
@@ -421,8 +423,8 @@ def train_and_save_models():
             X_train_features,
             df_train_std[["close_price_1h", "close_price_24h"]],
             raw_data=raw_data,
-            epochs=100,
-            lr=0.01,
+            epochs=200,
+            lr=0.005,
         )
 
         X_stack_for_metrics = get_stacking_input(
@@ -434,7 +436,7 @@ def train_and_save_models():
             df_train_std[["close_price_1h", "close_price_24h"]],
         )
         metrics = {}
-        model_metric_pairs = [
+        for model_name, horizon, model, target in [
             ("gru", "1h", gru_models["1h"], "close_price_1h"),
             ("gru", "24h", gru_models["24h"], "close_price_24h"),
             ("transformer", "1h", transformer_models["1h"], "close_price_1h"),
@@ -443,8 +445,7 @@ def train_and_save_models():
             ("xgboost", "24h", xgb_models["24h"], "close_price_24h"),
             ("lightgbm", "1h", lgb_models["1h"], "close_price_1h"),
             ("lightgbm", "24h", lgb_models["24h"], "close_price_24h"),
-        ]
-        for model_name, horizon, model, target in model_metric_pairs:
+        ]:
             if model_name in ["xgboost", "lightgbm"]:
                 metrics[f"{model_name}_{horizon}"] = compute_relative_metrics(
                     model,
@@ -463,23 +464,40 @@ def train_and_save_models():
         for key, value in metrics.items():
             print(f"{key}: {value}")
 
-            common_meta = {"unified": data["unified"]}
-            models_to_save = [
-                (stacking_model, "stacking", "unified", currency, metrics_stack),
-                (gru_models["1h"], "gru", "1h", currency, metrics.get("gru_1h")),
-                (gru_models["24h"], "gru", "24h", currency, metrics.get("gru_24h")),
-                (transformer_models["1h"], "transformer", "1h", currency, metrics.get("transformer_1h")),
-                (transformer_models["24h"], "transformer", "24h", currency, metrics.get("transformer_24h")),
-                (xgb_models["1h"], "xgboost", "1h", currency, metrics.get("xgboost_1h")),
-                (xgb_models["24h"], "xgboost", "24h", currency, metrics.get("xgboost_24h")),
-                (lgb_models["1h"], "lightgbm", "1h", currency, metrics.get("lightgbm_1h")),
-                (lgb_models["24h"], "lightgbm", "24h", currency, metrics.get("lightgbm_24h")),
-                (model_prophet, "prophet", currency, currency, None),
-                (model_arima, "arima", currency, currency, None),
-            ]
-
-            for mdl, mdl_type, horizon, cur, met in models_to_save:
-                save_model_with_metadata(mdl, mdl_type, horizon, cur, common_meta, met)
+        common_meta = {"unified": data["unified"]}
+        models_to_save = [
+            (stacking_model, "stacking", "unified", currency, metrics_stack),
+            (gru_models["1h"], "gru", "1h", currency, metrics.get("gru_1h")),
+            (gru_models["24h"], "gru", "24h", currency, metrics.get("gru_24h")),
+            (
+                transformer_models["1h"],
+                "transformer",
+                "1h",
+                currency,
+                metrics.get("transformer_1h"),
+            ),
+            (
+                transformer_models["24h"],
+                "transformer",
+                "24h",
+                currency,
+                metrics.get("transformer_24h"),
+            ),
+            (xgb_models["1h"], "xgboost", "1h", currency, metrics.get("xgboost_1h")),
+            (xgb_models["24h"], "xgboost", "24h", currency, metrics.get("xgboost_24h")),
+            (lgb_models["1h"], "lightgbm", "1h", currency, metrics.get("lightgbm_1h")),
+            (
+                lgb_models["24h"],
+                "lightgbm",
+                "24h",
+                currency,
+                metrics.get("lightgbm_24h"),
+            ),
+            (model_prophet, "prophet", currency, currency, None),
+            (model_arima, "arima", currency, currency, None),
+        ]
+        for mdl, mdl_type, horizon, cur, met in models_to_save:
+            save_model_with_metadata(mdl, mdl_type, horizon, cur, common_meta, met)
 
         print(f"✅ Модели для {currency} обучены и сохранены.")
     print("\n✅ Все модели обучены и сохранены для всех криптовалют.")

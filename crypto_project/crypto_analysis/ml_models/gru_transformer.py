@@ -51,12 +51,13 @@ def train_gru_attention(
     impute_method,
     hidden_size,
     num_layers,
+    validation_data=None,
+    early_stopping_rounds=None,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     X_train = impute_missing(X_train, method=impute_method)
     y_train = impute_missing(y_train, method=impute_method)
-
     X_seq, y_seq = create_sequences(X_train, y_train, seq_len)
 
     X_tensor = torch.tensor(X_seq, dtype=torch.float32).to(device)
@@ -71,6 +72,9 @@ def train_gru_attention(
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
+
+    best_val_loss = float("inf")
+    patience_counter = 0
 
     model.train()
     for epoch in range(epochs):
@@ -87,8 +91,34 @@ def train_gru_attention(
         scheduler.step(avg_loss)
         current_lr = scheduler.get_last_lr()[0]
         print(
-            f"GRU_Attention Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}, LR: {current_lr:.6f}"
+            f"GRU_Attention Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}, LR: {current_lr:.6f}"
         )
+
+        if validation_data is not None and early_stopping_rounds is not None:
+            X_val, y_val = validation_data
+            X_val = impute_missing(X_val, method=impute_method)
+            y_val = impute_missing(y_val, method=impute_method)
+            X_val_seq, y_val_seq = create_sequences(X_val, y_val, seq_len)
+            X_val_tensor = torch.tensor(X_val_seq, dtype=torch.float32).to(device)
+            y_val_tensor = torch.tensor(
+                y_val_seq.reshape(-1, 1), dtype=torch.float32
+            ).to(device)
+            model.eval()
+            with torch.no_grad():
+                val_outputs = model(X_val_tensor)
+                val_loss = criterion(val_outputs, y_val_tensor).item()
+            model.train()
+            print(f"  Validation Loss: {val_loss:.4f}")
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                patience_counter = 0
+                best_state_dict = model.state_dict()
+            else:
+                patience_counter += 1
+                if patience_counter >= early_stopping_rounds:
+                    print(f"  Early stopping at epoch {epoch+1}")
+                    model.load_state_dict(best_state_dict)
+                    return model
     return model
 
 
@@ -124,12 +154,13 @@ def train_transformer(
     d_model,
     num_layers,
     nhead,
+    validation_data=None,
+    early_stopping_rounds=None,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     X_train = impute_missing(X_train, method=impute_method)
     y_train = impute_missing(y_train, method=impute_method)
-
     X_seq, y_seq = create_sequences(X_train, y_train, seq_len)
 
     X_tensor = torch.tensor(X_seq, dtype=torch.float32).to(device)
@@ -145,6 +176,9 @@ def train_transformer(
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
 
+    best_val_loss = float("inf")
+    patience_counter = 0
+
     model.train()
     for epoch in range(epochs):
         total_loss = 0
@@ -159,6 +193,32 @@ def train_transformer(
         scheduler.step(avg_loss)
         current_lr = scheduler.get_last_lr()[0]
         print(
-            f"Transformer Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}, LR: {current_lr:.6f}"
+            f"Transformer Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}, LR: {current_lr:.6f}"
         )
+
+        if validation_data is not None and early_stopping_rounds is not None:
+            X_val, y_val = validation_data
+            X_val = impute_missing(X_val, method=impute_method)
+            y_val = impute_missing(y_val, method=impute_method)
+            X_val_seq, y_val_seq = create_sequences(X_val, y_val, seq_len)
+            X_val_tensor = torch.tensor(X_val_seq, dtype=torch.float32).to(device)
+            y_val_tensor = torch.tensor(
+                y_val_seq.reshape(-1, 1), dtype=torch.float32
+            ).to(device)
+            model.eval()
+            with torch.no_grad():
+                val_outputs = model(X_val_tensor)
+                val_loss = criterion(val_outputs, y_val_tensor).item()
+            model.train()
+            print(f"  Validation Loss: {val_loss:.4f}")
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                patience_counter = 0
+                best_state_dict = model.state_dict()
+            else:
+                patience_counter += 1
+                if patience_counter >= early_stopping_rounds:
+                    print(f"  Early stopping at epoch {epoch+1}")
+                    model.load_state_dict(best_state_dict)
+                    return model
     return model

@@ -22,13 +22,35 @@ class StackingModel(nn.Module):
 
 
 def get_model_predictions(model, name, X, raw_data=None):
+    print(
+        f"get_model_predictions: X shape = {X.shape}, raw_data is {'provided' if raw_data is not None else 'None'}"
+    )
+    if raw_data is not None:
+        print(f"raw_data shape перед prepare_features: {raw_data.shape}")
+
     if name.startswith("xgboost") or name.startswith("lightgbm"):
         if raw_data is not None:
             X_prepared = prepare_features(raw_data)
+            print(f"X_prepared из raw_data: {X_prepared.shape}")
+            if X_prepared.empty:
+                print(
+                    "prepare_features(raw_data) вернул пустой DataFrame, используем X вместо raw_data"
+                )
+                X_prepared = prepare_features(X)
+                print(f"X_prepared из X: {X_prepared.shape}")
         else:
             X_prepared = prepare_features(X)
+            print(f"X_prepared из X (без raw_data): {X_prepared.shape}")
+
+        if X_prepared.empty:
+            raise ValueError(
+                f"X_prepared пуст после prepare_features. X shape: {X.shape}, raw_data shape: {raw_data.shape if raw_data is not None else 'None'}"
+            )
+
         cols_to_remove = ["close_price", "price_1h", "price_24h"]
         X_prepared = X_prepared.drop(columns=cols_to_remove, errors="ignore")
+        print(f"X_prepared после удаления колонок: {X_prepared.shape}")
+
         if name.startswith("xgboost"):
             booster = model.get_booster()
             expected_features = booster.feature_names
@@ -36,7 +58,16 @@ def get_model_predictions(model, name, X, raw_data=None):
         elif name.startswith("lightgbm"):
             expected_features = model.feature_name_
             X_prepared = X_prepared.reindex(columns=expected_features, fill_value=0)
+
+        print(f"X_prepared после reindex для {name}: {X_prepared.shape}")
+
+        if X_prepared.empty or X_prepared.ndim != 2:
+            raise ValueError(
+                f"Input data for prediction is empty or not 2D. X_prepared: {X_prepared}"
+            )
+
         pred_array = model.predict(X_prepared)
+        print(f"pred_array shape: {pred_array.shape}")
         if pred_array.ndim == 1:
             pred_array = pred_array.reshape(-1, 1)
         if name.endswith("_1h"):
