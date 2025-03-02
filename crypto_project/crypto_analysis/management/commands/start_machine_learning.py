@@ -9,7 +9,7 @@ from crypto_analysis.preprocess.data_preprocessing import (
 )
 from crypto_analysis.preprocess.sentiment_analysis import analyze_sentiment
 from crypto_analysis.preprocess.data_aggregator import save_csv_files_by_currency
-from crypto_analysis.ml_models.train_update_models import train_and_save_models
+from crypto_analysis.ml_models.train_models import train_and_save_models
 
 logger = logging.getLogger(__name__)
 

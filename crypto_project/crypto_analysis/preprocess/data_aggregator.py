@@ -109,13 +109,12 @@ def build_unified_dataframe():
         df_merged = pd.merge(
             df_merged, df_news, on="news_hour", how="left", suffixes=("", "_news")
         )
+        df_merged["news_available"] = (~df_merged["vader_compound"].isna()).astype(int)
 
     if not df_entities.empty:
-        df_unified = pd.merge(df_merged, df_entities, on="news_hour", how="left")
-    else:
-        df_unified = df_merged.copy()
+        df_merged = pd.merge(df_merged, df_entities, on="news_hour", how="left")
 
-    return df_unified
+    return df_merged
 
 
 def remove_outliers_iqr(data, columns):
@@ -270,7 +269,6 @@ def save_csv_files_by_currency():
 
     for currency in currencies:
         safe_currency = str(currency).strip().replace("/", "_").replace("\\", "_")
-
         df_currency = df[df["cryptocurrency"] == currency].copy()
         processed_data, features_to_scale = preprocessing_data(df_currency)
 
