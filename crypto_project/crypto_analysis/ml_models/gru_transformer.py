@@ -6,6 +6,9 @@ from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 import pandas as pd
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Устройство: {'GPU' if torch.cuda.is_available() else 'CPU'}")
+
 
 def impute_missing(df, method="ffill"):
     if method == "ffill":
@@ -54,8 +57,6 @@ def train_gru_attention(
     validation_data=None,
     early_stopping_rounds=None,
 ):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     X_train = impute_missing(X_train, method=impute_method)
     y_train = impute_missing(y_train, method=impute_method)
     X_seq, y_seq = create_sequences(X_train, y_train, seq_len)
@@ -68,6 +69,7 @@ def train_gru_attention(
 
     input_size = X_train.shape[1]
     model = GRUAttentionModel(input_size, hidden_size, num_layers, dropout).to(device)
+    print(f"Модель GRUAttentionModel перемещена на {next(model.parameters()).device}")
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -80,6 +82,7 @@ def train_gru_attention(
     for epoch in range(epochs):
         total_loss = 0
         for X_batch, y_batch in dataloader:
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
             optimizer.zero_grad()
             outputs = model(X_batch)
             loss = criterion(outputs, y_batch)
@@ -157,8 +160,6 @@ def train_transformer(
     validation_data=None,
     early_stopping_rounds=None,
 ):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     X_train = impute_missing(X_train, method=impute_method)
     y_train = impute_missing(y_train, method=impute_method)
     X_seq, y_seq = create_sequences(X_train, y_train, seq_len)
@@ -171,6 +172,7 @@ def train_transformer(
 
     input_size = X_train.shape[1]
     model = TransformerModel(input_size, d_model, num_layers, nhead, dropout).to(device)
+    print(f"Модель TransformerModel перемещена на {next(model.parameters()).device}")
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -183,6 +185,7 @@ def train_transformer(
     for epoch in range(epochs):
         total_loss = 0
         for X_batch, y_batch in dataloader:
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
             optimizer.zero_grad()
             outputs = model(X_batch)
             loss = criterion(outputs, y_batch)

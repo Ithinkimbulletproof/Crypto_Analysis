@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
 import xgboost as xgb
 import lightgbm as lgb
+import torch
 from crypto_analysis.ml_models.utils import (
     save_best_params,
     load_best_params,
@@ -21,6 +22,9 @@ from crypto_analysis.ml_models.gru_transformer import (
 from crypto_analysis.ml_models.xgboost_lightgbm import train_xgboost_and_lightgbm
 from crypto_analysis.ml_models.prophet_arima import train_prophet, train_arima
 from crypto_analysis.ml_models.stacking import train_stacking
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Используемое устройство: {device}")
 
 
 def train_and_save_models():
@@ -67,9 +71,12 @@ def train_and_save_models():
         "reg_alpha": [0, 0.001, 0.005, 0.01, 0.05, 0.1],
         "reg_lambda": [0, 0.001, 0.005, 0.01, 0.05, 0.1],
     }
-    xgb_model = xgb.XGBRegressor(objective="reg:squarederror")
+
+    xgb_model = xgb.XGBRegressor(
+        objective="reg:squarederror", tree_method="hist", device="cuda"
+    )
     lgb_model = lgb.LGBMRegressor(
-        objective="regression", force_col_wise=True, verbose=-1
+        objective="regression", device="gpu", force_col_wise=True, verbose=-1
     )
 
     def get_best_params(model, param_grid, X, y, params_file, model_desc):
@@ -82,7 +89,7 @@ def train_and_save_models():
                 param_grid,
                 cv=tscv,
                 scoring="neg_mean_squared_error",
-                n_jobs=3,
+                n_jobs=1,
                 n_iter=250,
                 random_state=42,
             )
@@ -180,6 +187,7 @@ def train_and_save_models():
                 impute_method="ffill",
                 hidden_size=96,
                 num_layers=3,
+                device=device,
             )
             print(f"Обучение Transformer для горизонта {horizon} для {currency}:")
             transformer_models[horizon] = train_transformer(
@@ -196,6 +204,7 @@ def train_and_save_models():
                 d_model=64,
                 num_layers=2,
                 nhead=4,
+                device=device,
             )
 
         xgb_models, lgb_models = {}, {}
@@ -204,6 +213,8 @@ def train_and_save_models():
             ("24h", "close_price_24h"),
         ]:
             print(f"Обучение XGBoost для горизонта {horizon} для {currency}:")
+            best_params_xgb[horizon]["tree_method"] = "hist"
+            best_params_xgb[horizon]["device"] = "cuda"
             xgb_models[horizon] = train_xgboost_and_lightgbm(
                 df_train_std,
                 params=best_params_xgb[horizon],
@@ -211,6 +222,7 @@ def train_and_save_models():
                 target=target_col,
             )
             print(f"Обучение LightGBM для горизонта {horizon} для {currency}:")
+            best_params_lgb[horizon]["device"] = "gpu"
             lgb_models[horizon] = train_xgboost_and_lightgbm(
                 df_train_std,
                 params=best_params_lgb[horizon],
@@ -248,6 +260,7 @@ def train_and_save_models():
             raw_data=raw_data,
             epochs=200,
             lr=0.005,
+            device=device,
         )
 
         X_stack_for_metrics = get_stacking_input(

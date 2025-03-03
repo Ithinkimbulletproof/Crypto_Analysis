@@ -40,14 +40,27 @@ def train_model(X, y, model_type, params):
     y_train, y_val = y.iloc[:split_index], y.iloc[split_index:]
 
     if model_type.lower() == "xgb":
-        model = xgb.XGBRegressor(**params)
+        dtrain = xgb.DMatrix(X_train, label=y_train, device="cuda")
+        dval = xgb.DMatrix(X_val, label=y_val, device="cuda")
+
+        params.update({"tree_method": "hist", "device": "cuda"})
+
+        model = xgb.train(
+            params, dtrain, num_boost_round=params.get("n_estimators", 100)
+        )
+
+        y_pred = model.predict(dval)
     elif model_type.lower() == "lgb":
-        model = lgb.LGBMRegressor(**params)
+        params.update({"device": "gpu"})
+        train_data = lgb.Dataset(X_train, label=y_train)
+        val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+
+        model = lgb.train(params, train_data, valid_sets=[val_data], verbose_eval=False)
+
+        y_pred = model.predict(X_val)
     else:
         raise ValueError("model_type должен быть 'xgb' или 'lgb'")
 
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_val)
     mse = mean_squared_error(y_val, y_pred)
     print(f"{model_type.upper()} validation MSE: {mse:.4f}")
     return model

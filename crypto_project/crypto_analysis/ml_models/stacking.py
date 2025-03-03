@@ -6,6 +6,9 @@ import pandas as pd
 from crypto_analysis.models import CryptoPrediction
 from crypto_analysis.ml_models.xgboost_lightgbm import prepare_features
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Устройство: {'GPU' if torch.cuda.is_available() else 'CPU'}")
+
 
 class StackingModel(nn.Module):
     def __init__(self, input_size):
@@ -81,13 +84,14 @@ def get_model_predictions(model, name, X, raw_data=None):
 
     elif isinstance(model, torch.nn.Module):
         X_np = X.values if hasattr(X, "values") else X
-        X_tensor = torch.tensor(X_np, dtype=torch.float32)
+        X_tensor = torch.tensor(X_np, dtype=torch.float32).to(device)
         if X_tensor.ndim == 2:
             X_tensor = X_tensor.unsqueeze(1)
         model.eval()
+        model.to(device)
         with torch.no_grad():
             pred_tensor = model(X_tensor)
-        pred_array = pred_tensor.numpy()
+        pred_array = pred_tensor.cpu().numpy()
         if pred_array.ndim == 1:
             pred_array = pred_array.reshape(-1, 1)
         if name.endswith("_1h"):
@@ -134,12 +138,16 @@ def train_stacking(models, X_train, y_train, raw_data=None, epochs=100, lr=0.01)
     min_rows = min(pred.shape[0] for pred in preds)
     preds_aligned = [pred[:min_rows] for pred in preds]
     X_stack = np.hstack(preds_aligned)
-    X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32)
-    y_tensor = torch.tensor(y_train.values[:min_rows], dtype=torch.float32)
+    X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32).to(device)
+    y_tensor = torch.tensor(y_train.values[:min_rows], dtype=torch.float32).to(device)
+
     input_size = X_stack.shape[1]
-    stacking_model = StackingModel(input_size=input_size)
+    stacking_model = StackingModel(input_size=input_size).to(device)
+    print(f"StackingModel перемещена на {next(stacking_model.parameters()).device}")
+
     optimizer = optim.Adam(stacking_model.parameters(), lr=lr)
     criterion = nn.MSELoss()
+
     stacking_model.train()
     for epoch in range(epochs):
         optimizer.zero_grad()
@@ -163,10 +171,11 @@ def predict_and_save(models, stacking_model, X, current_date, symbol, raw_data=N
     min_rows = min(pred.shape[0] for pred in preds)
     preds_aligned = [pred[:min_rows] for pred in preds]
     X_stack = np.hstack(preds_aligned)
-    X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32)
+    X_stack_tensor = torch.tensor(X_stack, dtype=torch.float32).to(device)
     stacking_model.eval()
+    stacking_model.to(device)
     with torch.no_grad():
-        final_pred = stacking_model(X_stack_tensor).numpy()
+        final_pred = stacking_model(X_stack_tensor).cpu().numpy()
     try:
         price_now = X["close_price"].iloc[-1]
     except KeyError:
