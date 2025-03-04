@@ -5,9 +5,17 @@ import numpy as np
 import pandas as pd
 from crypto_analysis.models import CryptoPrediction
 from crypto_analysis.ml_models.xgboost_lightgbm import prepare_features
+import xgboost as xgb
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Устройство: {'GPU' if torch.cuda.is_available() else 'CPU'}")
+print(torch.cuda.is_available())
+print(torch.cuda.get_device_name(0))
+print(xgb.__version__)
+
+if not torch.cuda.is_available():
+    print("Предупреждение: GPU недоступен, XGBoost будет использовать CPU.")
 
 
 class StackingModel(nn.Module):
@@ -58,18 +66,16 @@ def get_model_predictions(model, name, X, raw_data=None):
             booster = model.get_booster()
             expected_features = booster.feature_names
             X_prepared = X_prepared.reindex(columns=expected_features, fill_value=0)
+            print(f"X_prepared после reindex для {name}: {X_prepared.shape}")
+            dmatrix = xgb.DMatrix(X_prepared, enable_categorical=False)
+            model.set_param({"device": "cuda" if torch.cuda.is_available() else "cpu"})
+            pred_array = model.predict(dmatrix)
         elif name.startswith("lightgbm"):
             expected_features = model.feature_name_
             X_prepared = X_prepared.reindex(columns=expected_features, fill_value=0)
+            print(f"X_prepared после reindex для {name}: {X_prepared.shape}")
+            pred_array = model.predict(X_prepared)
 
-        print(f"X_prepared после reindex для {name}: {X_prepared.shape}")
-
-        if X_prepared.empty or X_prepared.ndim != 2:
-            raise ValueError(
-                f"Input data for prediction is empty or not 2D. X_prepared: {X_prepared}"
-            )
-
-        pred_array = model.predict(X_prepared)
         print(f"pred_array shape: {pred_array.shape}")
         if pred_array.ndim == 1:
             pred_array = pred_array.reshape(-1, 1)
@@ -189,6 +195,7 @@ def predict_and_save(models, stacking_model, X, current_date, symbol, raw_data=N
         ((price_24h - price_now) / price_now * 100) if price_now else None
     )
     prediction_confidence = 0.9
+
     prediction = CryptoPrediction.objects.create(
         symbol=symbol if isinstance(symbol, str) else ",".join(symbol),
         current_price=price_now,

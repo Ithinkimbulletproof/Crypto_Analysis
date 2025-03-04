@@ -6,9 +6,10 @@ import numpy as np
 from datetime import datetime
 from crypto_analysis.ml_models.stacking import get_model_predictions
 
-MODEL_DIR = "models"
-if not os.path.exists(MODEL_DIR):
-    os.makedirs(MODEL_DIR)
+MODEL_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models"
+)
+os.makedirs(MODEL_DIR, exist_ok=True)
 
 DATA_DIR = "data_exports"
 

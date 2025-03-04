@@ -23,8 +23,89 @@ from crypto_analysis.ml_models.xgboost_lightgbm import train_xgboost_and_lightgb
 from crypto_analysis.ml_models.prophet_arima import train_prophet, train_arima
 from crypto_analysis.ml_models.stacking import train_stacking
 
+BASE_MODELS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models"
+)
+os.makedirs(BASE_MODELS_DIR, exist_ok=True)
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Используемое устройство: {device}")
+
+
+def train_model(X, y, model_type, params):
+    if not params:
+        raise ValueError("Параметры модели должны быть переданы извне.")
+
+    split_index = int(len(X) * 0.8)
+    X_train, X_val = X.iloc[:split_index], X.iloc[split_index:]
+    y_train, y_val = y.iloc[:split_index], y.iloc[split_index:]
+
+    if model_type.lower() == "xgb":
+        dtrain = xgb.DMatrix(X_train, label=y_train)
+        dval = xgb.DMatrix(X_val, label=y_val)
+
+        params.update({"tree_method": "gpu_hist", "device": "cuda"})
+        model = xgb.train(
+            params, dtrain, num_boost_round=params.get("n_estimators", 100)
+        )
+
+        model.set_param({"device": "cuda", "predictor": "gpu_predictor"})
+        y_pred = model.predict(dval)
+
+    elif model_type.lower() == "lgb":
+        params.update({"device": "gpu"})
+        train_data = lgb.Dataset(X_train, label=y_train)
+        val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+        model = lgb.train(params, train_data, valid_sets=[val_data], verbose_eval=False)
+        y_pred = model.predict(X_val)
+    else:
+        raise ValueError("model_type должен быть 'xgb' или 'lgb'")
+
+    from sklearn.metrics import mean_squared_error
+
+    mse = mean_squared_error(y_val, y_pred)
+    print(f"{model_type.upper()} validation MSE: {mse:.4f}")
+    return model
+
+
+def train_xgboost_and_lightgbm(df, params, framework, target):
+    df = df.copy()
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        five_years_ago = pd.Timestamp.now() - pd.DateOffset(years=5)
+        df = df[df["date"] >= five_years_ago]
+        df["hour"] = df["date"].dt.hour
+        df["day_of_week"] = df["date"].dt.dayofweek
+    cols_to_drop = ["cryptocurrency", "date", "news_hour", "date_y", "entities"]
+    df.drop(columns=cols_to_drop, inplace=True, errors="ignore")
+    df.rename(columns=lambda x: x.replace(" ", "_"), inplace=True)
+    if "close_price" not in df.columns:
+        raise KeyError(
+            f"Колонка 'close_price' отсутствует в DataFrame. Доступные колонки: {df.columns.tolist()}"
+        )
+    df["lag_1h"] = df["close_price"].shift(4)
+    df["lag_24h"] = df["close_price"].shift(96)
+    df = df.dropna()
+
+    df["price_1h"] = df["lag_1h"]
+    df["price_24h"] = df["lag_24h"]
+    X = df.drop(columns=["close_price", "price_1h", "price_24h"])
+
+    if target:
+        y = df[target]
+        horizon = "1 час" if target == "price_1h" else "24 часа"
+        print(f"Обучение {framework.upper()} для предсказания цены через {horizon}:")
+        return train_model(X, y, model_type=framework, params=params)
+
+    y_1h = df["price_1h"]
+    y_24h = df["price_24h"]
+    models = {}
+    for timeframe, y in [("1h", y_1h), ("24h", y_24h)]:
+        print(f"Обучение {framework.upper()} для предсказания цены через {timeframe}:")
+        models[f"{framework}_{timeframe}"] = train_model(
+            X, y, model_type=framework, params=params
+        )
+    return models
 
 
 def train_and_save_models():
@@ -90,7 +171,7 @@ def train_and_save_models():
                 cv=tscv,
                 scoring="neg_mean_squared_error",
                 n_jobs=1,
-                n_iter=250,
+                n_iter=50,
                 random_state=42,
             )
             random_search.fit(X, y)
@@ -138,9 +219,7 @@ def train_and_save_models():
             ("24h", "close_price_24h"),
         ]:
             params_file_xgb = os.path.join(
-                os.path.dirname(__file__),
-                "models",
-                f"best_params_xgb_{horizon}_{currency}.json",
+                BASE_MODELS_DIR, f"best_params_xgb_{horizon}_{currency}.json"
             )
             best_params_xgb[horizon] = get_best_params(
                 xgb_model,
@@ -151,9 +230,7 @@ def train_and_save_models():
                 f"XGBoost ({horizon})",
             )
             params_file_lgb = os.path.join(
-                os.path.dirname(__file__),
-                "models",
-                f"best_params_lgb_{horizon}_{currency}.json",
+                BASE_MODELS_DIR, f"best_params_lgb_{horizon}_{currency}.json"
             )
             best_params_lgb[horizon] = get_best_params(
                 lgb_model,
@@ -172,7 +249,6 @@ def train_and_save_models():
             split_index = int(0.8 * len(X_train))
             X_tr, X_val = X_train.iloc[:split_index], X_train.iloc[split_index:]
             y_tr, y_val = y_train.iloc[:split_index], y_train.iloc[split_index:]
-
             print(f"Обучение GRU для горизонта {horizon} для {currency}:")
             gru_models[horizon] = train_gru_attention(
                 X_tr,

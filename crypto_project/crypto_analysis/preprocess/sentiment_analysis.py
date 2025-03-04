@@ -198,7 +198,3 @@ def analyze_sentiment():
     except Exception as e:
         logger.error(f"Анализ не выполнен: {str(e)}")
         return False
-
-
-if __name__ == "__main__":
-    analyze_sentiment()
