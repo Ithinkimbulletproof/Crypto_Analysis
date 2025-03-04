@@ -1,6 +1,5 @@
 import os
 import pandas as pd
-import numpy as np
 from dotenv import load_dotenv
 from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
 import xgboost as xgb
@@ -19,7 +18,10 @@ from crypto_analysis.ml_models.gru_transformer import (
     train_gru_attention,
     train_transformer,
 )
-from crypto_analysis.ml_models.xgboost_lightgbm import train_xgboost_and_lightgbm
+from crypto_analysis.ml_models.xgboost_lightgbm import (
+    train_xgboost_and_lightgbm,
+    train_model,
+)
 from crypto_analysis.ml_models.prophet_arima import train_prophet, train_arima
 from crypto_analysis.ml_models.stacking import train_stacking
 
@@ -30,42 +32,6 @@ os.makedirs(BASE_MODELS_DIR, exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Используемое устройство: {device}")
-
-
-def train_model(X, y, model_type, params):
-    if not params:
-        raise ValueError("Параметры модели должны быть переданы извне.")
-
-    split_index = int(len(X) * 0.8)
-    X_train, X_val = X.iloc[:split_index], X.iloc[split_index:]
-    y_train, y_val = y.iloc[:split_index], y.iloc[split_index:]
-
-    if model_type.lower() == "xgb":
-        dtrain = xgb.DMatrix(X_train, label=y_train)
-        dval = xgb.DMatrix(X_val, label=y_val)
-
-        params.update({"tree_method": "gpu_hist", "device": "cuda"})
-        model = xgb.train(
-            params, dtrain, num_boost_round=params.get("n_estimators", 100)
-        )
-
-        model.set_param({"device": "cuda", "predictor": "gpu_predictor"})
-        y_pred = model.predict(dval)
-
-    elif model_type.lower() == "lgb":
-        params.update({"device": "gpu"})
-        train_data = lgb.Dataset(X_train, label=y_train)
-        val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
-        model = lgb.train(params, train_data, valid_sets=[val_data], verbose_eval=False)
-        y_pred = model.predict(X_val)
-    else:
-        raise ValueError("model_type должен быть 'xgb' или 'lgb'")
-
-    from sklearn.metrics import mean_squared_error
-
-    mse = mean_squared_error(y_val, y_pred)
-    print(f"{model_type.upper()} validation MSE: {mse:.4f}")
-    return model
 
 
 def train_xgboost_and_lightgbm(df, params, framework, target):

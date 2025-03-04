@@ -1,7 +1,9 @@
 import xgboost as xgb
 import lightgbm as lgb
 import pandas as pd
+import cupy as cp
 from sklearn.metrics import mean_squared_error
+from crypto_analysis.ml_models.common_ml_utils import to_cupy_array
 
 
 def prepare_features(df):
@@ -33,8 +35,14 @@ def train_model(X, y, model_type, params):
     y_train, y_val = y.iloc[:split_index], y.iloc[split_index:]
 
     if model_type.lower() == "xgb":
-        dtrain = xgb.DMatrix(X_train, label=y_train)
-        dval = xgb.DMatrix(X_val, label=y_val)
+        X_train_cp = cp.ascontiguousarray(to_cupy_array(X_train))
+        X_val_cp = cp.ascontiguousarray(to_cupy_array(X_val))
+        y_train_cp = cp.ascontiguousarray(to_cupy_array(y_train))
+        y_val_cp = cp.ascontiguousarray(to_cupy_array(y_val))
+
+        dtrain = xgb.DMatrix(X_train_cp, label=y_train_cp)
+        dval = xgb.DMatrix(X_val_cp, label=y_val_cp)
+
         params.update({"tree_method": "gpu_hist", "device": "cuda"})
         model = xgb.train(
             params, dtrain, num_boost_round=params.get("n_estimators", 100)
@@ -42,14 +50,22 @@ def train_model(X, y, model_type, params):
         y_pred = model.predict(dval)
     elif model_type.lower() == "lgb":
         params.update({"device": "gpu"})
-        train_data = lgb.Dataset(X_train, label=y_train)
-        val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+        X_train_cp = to_cupy_array(X_train)
+        X_val_cp = to_cupy_array(X_val)
+        y_train_cp = to_cupy_array(y_train)
+        y_val_cp = to_cupy_array(y_val)
+        train_data = lgb.Dataset(X_train_cp.get(), label=y_train_cp.get())
+        val_data = lgb.Dataset(
+            X_val_cp.get(), label=y_val_cp.get(), reference=train_data
+        )
         model = lgb.train(params, train_data, valid_sets=[val_data], verbose_eval=False)
-        y_pred = model.predict(X_val)
+        y_pred = model.predict(X_val_cp.get())
     else:
         raise ValueError("model_type должен быть 'xgb' или 'lgb'")
 
-    mse = mean_squared_error(y_val, y_pred)
+    mse = mean_squared_error(
+        y_val.get() if isinstance(y_val, cp.ndarray) else y_val, y_pred
+    )
     print(f"{model_type.upper()} validation MSE: {mse:.4f}")
     return model
 
